@@ -178,18 +178,29 @@ function collectPptxText(json: Record<string, unknown>): string {
 
 /**
  * Depth-first traversal of a parsed XML node tree.
- * Appends the string content of every `a:t` leaf to {@link texts}.
+ * Collects text from `a:t` (text run) nodes at any depth.
+ * XML attribute nodes (`$`) are skipped to avoid capturing namespace strings.
+ *
+ * @param node The current node to traverse.
+ * @param texts Accumulator for collected text strings.
+ * @param inTextRun Whether we are currently inside an `a:t` element.
  */
-function gatherTextNodes(node: unknown, texts: string[]): void {
+function gatherTextNodes(
+  node: unknown,
+  texts: string[],
+  inTextRun = false,
+): void {
   if (typeof node === "string") {
-    const trimmed = node.trim();
-    if (trimmed) texts.push(trimmed);
+    if (inTextRun) {
+      const trimmed = node.trim();
+      if (trimmed) texts.push(trimmed);
+    }
     return;
   }
 
   if (Array.isArray(node)) {
     for (const item of node) {
-      gatherTextNodes(item, texts);
+      gatherTextNodes(item, texts, inTextRun);
     }
     return;
   }
@@ -198,9 +209,10 @@ function gatherTextNodes(node: unknown, texts: string[]): void {
     for (const [key, value] of Object.entries(
       node as Record<string, unknown>,
     )) {
-      if (key === "a:t") {
-        gatherTextNodes(value, texts);
-      }
+      // Skip XML attribute bags to avoid capturing namespace URIs and other
+      // attribute values that are not meaningful slide text.
+      if (key === "$") continue;
+      gatherTextNodes(value, texts, inTextRun || key === "a:t");
     }
   }
 }
