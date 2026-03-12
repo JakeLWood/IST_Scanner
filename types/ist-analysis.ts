@@ -58,6 +58,12 @@ export interface DealDynamics extends ISTSection {
 // Aggregate recommendation
 // ---------------------------------------------------------------------------
 
+/**
+ * Recommendation produced by Claude as part of the raw ISTAnalysis JSON.
+ * Note: the scoring engine independently computes a FinalRecommendation
+ * (PROCEED | FURTHER_REVIEW | PASS) from the section scores; this type
+ * captures Claude's own assessment, which may differ.
+ */
 export type ISTRecommendation =
   | "proceed"
   | "conditional_proceed"
