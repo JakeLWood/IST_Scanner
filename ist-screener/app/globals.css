@@ -2,22 +2,60 @@
 @tailwind components;
 @tailwind utilities;
 
+/* PRD §6.1: Dark theme — navy/slate backgrounds, indigo accents */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --background: #0f172a;
+  --background-secondary: #1e293b;
+  --background-tertiary: #334155;
+  --foreground: #f1f5f9;
+  --foreground-muted: #94a3b8;
+  --accent: #6366f1;
+  --accent-hover: #818cf8;
+  /* PRD §3.6 status colors */
+  --status-proceed: #22c55e;
+  --status-further-review: #f59e0b;
+  --status-pass: #ef4444;
+  --border: #334155;
 }
 
 body {
+  background-color: var(--background);
   color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family:
+    'Geist',
+    'Inter',
+    ui-sans-serif,
+    system-ui,
+    sans-serif;
+}
+
+/* PRD §6.1: monospaced numbers for all financial figures and scores */
+.font-numeric {
+  font-family:
+    'JetBrains Mono',
+    'GeistMono',
+    ui-monospace,
+    SFMono-Regular,
+    monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* PRD §3.6: recommendation badge styles */
+.badge-proceed {
+  @apply bg-green-900 text-green-400 border border-green-700;
+}
+
+.badge-further-review {
+  @apply bg-amber-900 text-amber-400 border border-amber-700;
+}
+
+.badge-pass {
+  @apply bg-red-900 text-red-400 border border-red-700;
+}
+
+/* Card style for dark theme */
+.card {
+  @apply rounded-lg border border-slate-700 bg-slate-800 p-4;
 }
 
 @layer utilities {

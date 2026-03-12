@@ -581,3 +581,4 @@ Orthogonal Application	Using a technology in a market different from its origina
 Composite Score	Weighted average of all dimension scores, yielding a single 1–10 value
 
 <img width="468" height="418" alt="image" src="https://github.com/user-attachments/assets/495cb882-40ae-4492-b17d-a1bfecb1d20a" />
+___BEGIN___COMMAND_DONE_MARKER___0

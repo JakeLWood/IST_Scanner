@@ -2,10 +2,9 @@
 -- IST Screener – Row-Level Security Policies
 -- Applies to all tables created in 20260306000001_initial_schema.sql
 --
--- Access rules:
---   • All authenticated users can read all screenings (and other shared data).
---   • Only the creator and admins can edit or delete screenings (and their
---     associated documents / overrides).
+-- PRD §7.3 access rules:
+--   • All authenticated users can read all screenings (team is small; full transparency).
+--   • Only the screening creator and admins can edit or delete a screening.
 --   • Only admins can modify scoring_config, disqualifiers, and system_prompts.
 --   • api_usage_log is read-only for all authenticated users; inserts are
 --     performed exclusively by the service role (backend / edge functions).
@@ -27,8 +26,8 @@ AS $$
     SELECT EXISTS (
         SELECT 1
         FROM public.users
-        WHERE id        = auth.uid()
-          AND role      = 'admin'
+        WHERE id       = auth.uid()
+          AND role     = 'admin'
           AND is_active = TRUE
     );
 $$;
@@ -37,8 +36,7 @@ $$;
 -- users
 -- =============================================================================
 
--- Any authenticated user can view all user profiles (needed to display
--- reviewer names, filter by assignee, etc.)
+-- Any authenticated user can view all user profiles.
 CREATE POLICY "authenticated users can read users"
     ON users
     FOR SELECT
@@ -69,6 +67,7 @@ CREATE POLICY "only admins can delete users"
 
 -- =============================================================================
 -- screenings
+-- PRD §7.3: all authenticated users can read; only creator or admin can edit/delete
 -- =============================================================================
 
 -- All authenticated users can read all screenings.
@@ -78,31 +77,31 @@ CREATE POLICY "authenticated users can read all screenings"
     TO authenticated
     USING (TRUE);
 
--- Any authenticated user can start a new screening; created_by must be
--- their own user ID.
+-- Any authenticated user can start a new screening; user_id must be their own.
 CREATE POLICY "authenticated users can create screenings"
     ON screenings
     FOR INSERT
     TO authenticated
-    WITH CHECK (created_by = auth.uid());
+    WITH CHECK (user_id = auth.uid());
 
 -- Only the screening creator or an admin can update it.
 CREATE POLICY "creator or admins can update screenings"
     ON screenings
     FOR UPDATE
     TO authenticated
-    USING (created_by = auth.uid() OR is_admin())
-    WITH CHECK (created_by = auth.uid() OR is_admin());
+    USING (user_id = auth.uid() OR is_admin())
+    WITH CHECK (user_id = auth.uid() OR is_admin());
 
 -- Only the screening creator or an admin can delete it.
 CREATE POLICY "creator or admins can delete screenings"
     ON screenings
     FOR DELETE
     TO authenticated
-    USING (created_by = auth.uid() OR is_admin());
+    USING (user_id = auth.uid() OR is_admin());
 
 -- =============================================================================
 -- screening_documents
+-- PRD §7.3: same ownership model as screenings
 -- =============================================================================
 
 -- All authenticated users can read screening documents.
@@ -122,8 +121,8 @@ CREATE POLICY "creator or admins can insert screening documents"
         EXISTS (
             SELECT 1
             FROM screenings s
-            WHERE s.id         = screening_id
-              AND (s.created_by = auth.uid() OR is_admin())
+            WHERE s.id       = screening_id
+              AND (s.user_id = auth.uid() OR is_admin())
         )
     );
 
@@ -136,16 +135,16 @@ CREATE POLICY "creator or admins can update screening documents"
         EXISTS (
             SELECT 1
             FROM screenings s
-            WHERE s.id         = screening_id
-              AND (s.created_by = auth.uid() OR is_admin())
+            WHERE s.id       = screening_id
+              AND (s.user_id = auth.uid() OR is_admin())
         )
     )
     WITH CHECK (
         EXISTS (
             SELECT 1
             FROM screenings s
-            WHERE s.id         = screening_id
-              AND (s.created_by = auth.uid() OR is_admin())
+            WHERE s.id       = screening_id
+              AND (s.user_id = auth.uid() OR is_admin())
         )
     );
 
@@ -158,17 +157,17 @@ CREATE POLICY "creator or admins can delete screening documents"
         EXISTS (
             SELECT 1
             FROM screenings s
-            WHERE s.id         = screening_id
-              AND (s.created_by = auth.uid() OR is_admin())
+            WHERE s.id       = screening_id
+              AND (s.user_id = auth.uid() OR is_admin())
         )
     );
 
 -- =============================================================================
 -- scoring_config
+-- PRD §7.3: admins only for writes; all authenticated users can read
 -- =============================================================================
 
--- All authenticated users can read scoring configurations (needed when
--- running a screening).
+-- All authenticated users can read scoring configurations.
 CREATE POLICY "authenticated users can read scoring config"
     ON scoring_config
     FOR SELECT
@@ -198,11 +197,41 @@ CREATE POLICY "only admins can delete scoring config"
     USING (is_admin());
 
 -- =============================================================================
--- disqualifiers
+-- scoring_thresholds
+-- Same admin-only write access as scoring_config
 -- =============================================================================
 
--- All authenticated users can read disqualifier rules (needed when evaluating
--- candidates).
+CREATE POLICY "authenticated users can read scoring thresholds"
+    ON scoring_thresholds
+    FOR SELECT
+    TO authenticated
+    USING (TRUE);
+
+CREATE POLICY "only admins can insert scoring thresholds"
+    ON scoring_thresholds
+    FOR INSERT
+    TO authenticated
+    WITH CHECK (is_admin());
+
+CREATE POLICY "only admins can update scoring thresholds"
+    ON scoring_thresholds
+    FOR UPDATE
+    TO authenticated
+    USING (is_admin())
+    WITH CHECK (is_admin());
+
+CREATE POLICY "only admins can delete scoring thresholds"
+    ON scoring_thresholds
+    FOR DELETE
+    TO authenticated
+    USING (is_admin());
+
+-- =============================================================================
+-- disqualifiers
+-- PRD §7.3: admins only for writes; all authenticated users can read
+-- =============================================================================
+
+-- All authenticated users can read disqualifier rules.
 CREATE POLICY "authenticated users can read disqualifiers"
     ON disqualifiers
     FOR SELECT
@@ -233,9 +262,10 @@ CREATE POLICY "only admins can delete disqualifiers"
 
 -- =============================================================================
 -- system_prompts
+-- PRD §7.3: admins only for writes; all authenticated users can read
 -- =============================================================================
 
--- All authenticated users can read system prompts (needed by the AI pipeline).
+-- All authenticated users can read system prompts.
 CREATE POLICY "authenticated users can read system prompts"
     ON system_prompts
     FOR SELECT
@@ -266,11 +296,11 @@ CREATE POLICY "only admins can delete system prompts"
 
 -- =============================================================================
 -- api_usage_log
+-- PRD §7.3 / §2.4: read-only for all authenticated users.
+-- Inserts go through the service role (backend / edge functions) only.
+-- No INSERT policy for the authenticated role is intentional.
 -- =============================================================================
 
--- api_usage_log is read-only for all authenticated users.
--- Rows are inserted exclusively by the service role (backend / edge functions)
--- and are never modified or deleted through the API surface.
 CREATE POLICY "authenticated users can read api usage log"
     ON api_usage_log
     FOR SELECT
@@ -279,6 +309,7 @@ CREATE POLICY "authenticated users can read api usage log"
 
 -- =============================================================================
 -- screening_overrides
+-- PRD §7.3: any authenticated user may create; only admins may amend/delete
 -- =============================================================================
 
 -- All authenticated users can read override records (full audit visibility).
@@ -288,13 +319,13 @@ CREATE POLICY "authenticated users can read screening overrides"
     TO authenticated
     USING (TRUE);
 
--- Any authenticated user may record an override, but overridden_by must
--- always equal their own user ID to preserve audit-trail integrity.
+-- Any authenticated user may record an override, but user_id must equal
+-- their own user ID to preserve the audit trail.
 CREATE POLICY "authenticated users can create screening overrides"
     ON screening_overrides
     FOR INSERT
     TO authenticated
-    WITH CHECK (overridden_by = auth.uid());
+    WITH CHECK (user_id = auth.uid());
 
 -- Override records are part of the audit trail; only admins may amend them.
 CREATE POLICY "only admins can update screening overrides"
