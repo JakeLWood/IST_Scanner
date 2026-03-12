@@ -1,6 +1,6 @@
 /**
  * IST (Investment Screening Tool) Analysis Types
- * Used across all deal-type tracks (Traditional PE, IP/Technology Commercialization, etc.)
+ * Used across all deal-type tracks (Traditional PE, IP/Technology Commercialization, Growth Equity, etc.)
  */
 
 /** Score range for any IST section (1–10 integer) */
@@ -23,7 +23,7 @@ export interface ISTSection {
 }
 
 // ---------------------------------------------------------------------------
-// 7 IST Sections
+// 7 IST Sections – Traditional PE Track
 // ---------------------------------------------------------------------------
 
 export interface CompanyOverview extends ISTSection {
@@ -58,6 +58,12 @@ export interface DealDynamics extends ISTSection {
 // Aggregate recommendation
 // ---------------------------------------------------------------------------
 
+/**
+ * Recommendation produced by Claude as part of the raw ISTAnalysis JSON.
+ * Note: the scoring engine independently computes a FinalRecommendation
+ * (PROCEED | FURTHER_REVIEW | PASS) from the section scores; this type
+ * captures Claude's own assessment, which may differ.
+ */
 export type ISTRecommendation =
   | "proceed"
   | "conditional_proceed"
