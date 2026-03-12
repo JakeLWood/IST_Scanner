@@ -40,3 +40,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ist-screener subdirectory
+ist-screener/node_modules
+ist-screener/.next
+ist-screener/out
+ist-screener/build
+ist-screener/.env*.local
+ist-screener/next-env.d.ts
