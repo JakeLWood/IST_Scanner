@@ -18,7 +18,10 @@ export async function createClient() {
               cookieStore.set(name, value, options)
             );
           } catch {
-            // Server component — cookies can only be set in Server Actions/Route Handlers
+            // The `setAll` method is called from a Server Component.
+            // Cookies can only be set from Server Actions or Route Handlers.
+            // This error can be safely ignored if you have middleware refreshing
+            // user sessions.
           }
         },
       },
