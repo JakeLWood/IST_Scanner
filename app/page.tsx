@@ -13,18 +13,24 @@ export default async function Home() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 dark:bg-zinc-950">
-      <main className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-md dark:bg-zinc-900">
-        <h1 className="mb-2 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">
+    <div className="flex min-h-screen items-center justify-center bg-slate-950">
+      <main className="w-full max-w-sm rounded-2xl bg-slate-900 p-8 shadow-md">
+        <h1 className="mb-2 text-2xl font-semibold text-slate-50">
           IST Scanner
         </h1>
-        <p className="mb-6 text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="mb-6 text-sm text-slate-400">
           Signed in as{" "}
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            {user.email}
-          </span>
+          <span className="font-medium text-slate-300">{user.email}</span>
         </p>
-        <SignOutButton />
+        <div className="flex flex-col gap-3">
+          <a
+            href="/upload"
+            className="rounded-lg bg-indigo-600 px-4 py-2 text-center text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+          >
+            Screen a Deal
+          </a>
+          <SignOutButton />
+        </div>
       </main>
     </div>
   );
