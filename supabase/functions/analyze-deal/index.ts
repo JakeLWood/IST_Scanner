@@ -2,282 +2,426 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 // ---------------------------------------------------------------------------
-// Types (mirrors types/ist.ts — kept inline so the Edge Function is
+// Types (mirrors types/ist-analysis.ts — kept inline so the Edge Function is
 // self-contained without a build step)
 // ---------------------------------------------------------------------------
 
-type DealType = 'traditional_pe' | 'ip_technology';
-type RecommendationVerdict = 'PROCEED' | 'FURTHER_REVIEW' | 'PASS';
+/**
+ * Score range for any IST section (1–10 integer).
+ * Scoring calibration:
+ *   7–10 = Strong   (genuine positive supporting the thesis)
+ *   5–6  = Adequate (meets baseline expectations; no material concerns)
+ *   3–4  = Concerning (warrants significant further diligence)
+ *   1–2  = Deal-breaking (fundamental flaw; makes the investment inadvisable)
+ */
+type ISTScore = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 
-interface ISTStrength {
-  title: string;
-  description: string;
-  significance: 'low' | 'medium' | 'high';
-}
-
-interface ISTRisk {
-  title: string;
-  description: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  likelihood: 'low' | 'medium' | 'high';
-  mitigation?: string;
-}
-
-interface ISTValueCreation {
-  title: string;
-  description: string;
-  timeframe: 'short_term' | 'medium_term' | 'long_term';
-  potential: 'low' | 'medium' | 'high';
-}
-
-interface ISTScore {
-  overall: number;
-  market: number;
-  management: number;
-  financials: number;
-  strategic_fit: number;
-  ip_technology: number | null;
-  rationale: {
-    overall: string;
-    market: string;
-    management: string;
-    financials: string;
-    strategic_fit: string;
-    ip_technology: string | null;
-  };
-}
-
-interface ISTRecommendation {
-  verdict: RecommendationVerdict;
-  summary: string;
-  conditions: string[];
-  is_disqualified: boolean;
-  disqualifier_reason: string | null;
-}
-
-interface ISTKeyQuestion {
-  question: string;
-  rationale: string;
-  priority: 'low' | 'medium' | 'high';
-  owner?: string;
-}
-
-interface ISTDataQuality {
-  confidence: 'low' | 'medium' | 'high';
-  completeness_pct: number;
-  missing_data: string[];
-  caveats: string;
-}
-
-interface ISTAnalysis {
-  schema_version: string;
-  generated_at: string;
-  company_name: string;
-  deal_type: DealType;
-  executive_summary: string;
-  strengths: ISTStrength[];
-  risks: ISTRisk[];
-  value_creation: ISTValueCreation[];
+interface ISTSection {
   score: ISTScore;
+  commentary: string;
+  keyFindings: string[];
+}
+
+interface ISTSectionWithName extends ISTSection {
+  sectionName: string;
+}
+
+/** Aggregate recommendation produced by the scoring engine. */
+type ISTRecommendation = 'proceed' | 'conditional_proceed' | 'pass';
+
+/** The deal-type track analysed. */
+type DealType = 'traditional_pe' | 'ip_technology';
+
+/**
+ * Complete Investment Screening Tool analysis.
+ * Claude must return a JSON object that exactly matches this interface.
+ * Mirrors types/ist-analysis.ts in the main project.
+ */
+interface ISTAnalysis {
+  companyName: string;
+  analysisDate: string;
+  dealType: DealType;
+  companyOverview: ISTSectionWithName;
+  marketOpportunity: ISTSectionWithName;
+  financialProfile: ISTSectionWithName;
+  managementTeam: ISTSectionWithName;
+  investmentThesis: ISTSectionWithName;
+  riskAssessment: ISTSectionWithName;
+  dealDynamics: ISTSectionWithName;
+  overallScore: number;
   recommendation: ISTRecommendation;
-  key_questions: ISTKeyQuestion[];
-  data_quality: ISTDataQuality;
+  executiveSummary: string;
 }
 
 // ---------------------------------------------------------------------------
-// IST System Prompt — Core Identity
+// System prompts (mirrors lib/prompts/traditional-pe-analysis.ts and
+// lib/prompts/ip-tech-commercialization-analysis.ts)
 // ---------------------------------------------------------------------------
 
-const IST_SYSTEM_PROMPT = `You are a senior Private Equity associate at Catalyze Partners, a firm that acquires and commercializes advanced technologies and lower middle market operating companies. Your task is to perform an Investment Screening Test (IST) on the provided deal document.
+const TRADITIONAL_PE_SYSTEM_PROMPT = `\
+You are a senior associate at Catalyze Partners, a middle-market private equity firm \
+with a disciplined, fundamental-driven investment philosophy. You have deep expertise in \
+leveraged buyouts, operational value creation, and deal structuring across a wide range \
+of industries.
 
-Analytical philosophy: Be rigorous, skeptical, and data-driven. Prefer conservative estimates over optimistic projections. Flag areas where the document makes claims without supporting evidence. Distinguish between facts stated in the document and your own inferences.
+Your role is to perform rigorous, objective Investment Screening Tool (IST) analyses on \
+potential acquisition targets. You assess every deal through the same seven analytical \
+lenses used in Catalyze Partners' internal IC process and produce structured outputs that \
+IC members can rely on to make informed go / no-go decisions.
 
-Firm context: Catalyze Partners' portfolio includes companies in aerospace (Metro Aerospace), advanced materials (Alpine Advanced Materials), and analytical instrumentation (Axcend). The firm specializes in technology-driven industrial businesses. Catalyze provides shared services across portfolio companies. The firm looks for companies where it can apply operational expertise and technology commercialization capabilities.
+Guiding principles:
+- Be concise but complete. IC members are time-constrained; every word must add value.
+- Be direct about weaknesses. Surface red flags clearly; do not soften deal-breaking issues.
+- Ground every finding in evidence from the provided documents. Do not speculate beyond \
+  what the materials support.
+- Use industry-standard PE terminology (EBITDA, EV/EBITDA, MOIC, IRR, LBO, etc.).
+- Apply the following scoring calibration consistently across all seven sections:
+    7–10 = Strong   (a genuine positive that supports the thesis)
+    5–6  = Adequate (meets baseline expectations; no material concerns)
+    3–4  = Concerning (warrants significant further diligence; may be manageable)
+    1–2  = Deal-breaking (fundamental flaw that makes the investment inadvisable)
+- Compute the overallScore as the simple average of all seven section scores, rounded to \
+  one decimal place.
+- Set recommendation to "proceed" when overallScore ≥ 7.0 and no section scores 1–2; \
+  "conditional_proceed" when overallScore is 5.0–6.9 or exactly one section scores 3–4; \
+  "pass" when overallScore < 5.0 or any section scores 1–2.
 
-Output format: Return your analysis as a structured JSON object following the exact schema provided below. Every score must include a 2–3 sentence justification. Every strength must include specific supporting data from the document. Every risk must include a severity rating and a proposed mitigation.
+Return ONLY the JSON object described in the analysis prompt. Do not include any \
+explanatory text, markdown fences, or commentary outside the JSON.
+`;
 
-Required JSON schema:
-{
-  "schema_version": "1.0",
-  "generated_at": "<ISO-8601 timestamp>",
-  "company_name": "<string>",
-  "deal_type": "<traditional_pe | ip_technology>",
-  "executive_summary": "<string, max ~200 words>",
-  "strengths": [
-    {
-      "title": "<string>",
-      "description": "<string with specific data from the document>",
-      "significance": "<low | medium | high>"
-    }
-  ],
-  "risks": [
-    {
-      "title": "<string>",
-      "description": "<string>",
-      "severity": "<low | medium | high | critical>",
-      "likelihood": "<low | medium | high>",
-      "mitigation": "<string>"
-    }
-  ],
-  "value_creation": [
-    {
-      "title": "<string>",
-      "description": "<string>",
-      "timeframe": "<short_term | medium_term | long_term>",
-      "potential": "<low | medium | high>"
-    }
-  ],
-  "score": {
-    "overall": <number 0-100>,
-    "market": <number 0-100>,
-    "management": <number 0-100>,
-    "financials": <number 0-100>,
-    "strategic_fit": <number 0-100>,
-    "ip_technology": <number 0-100 or null>,
-    "rationale": {
-      "overall": "<string>",
-      "market": "<string>",
-      "management": "<string>",
-      "financials": "<string>",
-      "strategic_fit": "<string>",
-      "ip_technology": "<string or null>"
-    }
-  },
-  "recommendation": {
-    "verdict": "<PROCEED | FURTHER_REVIEW | PASS>",
-    "summary": "<string, 2-5 sentences>",
-    "conditions": ["<string>"],
-    "is_disqualified": <boolean>,
-    "disqualifier_reason": "<string or null>"
-  },
-  "key_questions": [
-    {
-      "question": "<string>",
-      "rationale": "<string>",
-      "priority": "<low | medium | high>",
-      "owner": "<string, optional>"
-    }
-  ],
-  "data_quality": {
-    "confidence": "<low | medium | high>",
-    "completeness_pct": <number 0-100>,
-    "missing_data": ["<string>"],
-    "caveats": "<string>"
-  }
-}
+const IP_TECH_SYSTEM_PROMPT = `\
+You are a senior technology commercialization specialist at Catalyze Partners, a \
+middle-market investment firm with a dedicated IP / Technology Commercialization track. \
+You combine deep technical diligence expertise with investment acumen to evaluate \
+opportunities where intellectual property and proprietary technology are the primary \
+value driver.
 
-Return ONLY the JSON object with no additional text, markdown code blocks, or explanation.`;
+Catalyze's core IP / Technology thesis — "orthogonal application" — is that the most \
+compelling commercialization opportunities arise when technology proven in one domain \
+(defense, aerospace, industrial, healthcare, etc.) is applied to adjacent markets that \
+the original inventors did not target. Your analysis must explicitly identify and score \
+these cross-domain application opportunities.
+
+Your role is to perform rigorous, objective Investment Screening Tool (IST) analyses on \
+IP and technology commercialization opportunities. You assess every deal through the same \
+seven analytical lenses used in Catalyze Partners' internal IC process, adapted for the \
+unique characteristics of IP-driven investments, and produce structured outputs that IC \
+members can rely on to make informed go / no-go decisions.
+
+Guiding principles:
+- Be concise but complete. IC members are time-constrained; every word must add value.
+- Be direct about weaknesses. Surface red flags clearly; do not soften deal-breaking issues.
+- Ground every finding in evidence from the provided documents. Do not speculate beyond \
+  what the materials support; flag data gaps explicitly.
+- Use both technology and investment terminology where appropriate: TRL (Technology \
+  Readiness Level), FTO (freedom-to-operate), IP, licensing, royalty, milestone payment, \
+  spin-out, IRR, MOIC, EV, etc.
+- Technology Readiness Level (TRL) calibration — use NASA / DoD definitions:
+    TRL 1–3 = Basic / Applied Research (concept proven in lab only)
+    TRL 4–5 = Technology Development (validated in relevant environment)
+    TRL 6–7 = Technology Demonstration (prototype demonstrated / system prototype)
+    TRL 8–9 = System Complete / Mission Proven (qualified, deployed in operational setting)
+  Higher TRL reduces commercialization risk; lower TRL increases time-to-revenue and \
+  capital requirements.
+- Apply the following IST scoring calibration consistently across all seven sections:
+    7–10 = Strong   (a genuine positive that supports the thesis)
+    5–6  = Adequate (meets baseline expectations; no material concerns)
+    3–4  = Concerning (warrants significant further diligence; may be manageable)
+    1–2  = Deal-breaking (fundamental flaw that makes the investment inadvisable)
+- Compute the overallScore as the simple average of all seven section scores, rounded to \
+  one decimal place.
+- Set recommendation to "proceed" when overallScore ≥ 7.0 and no section scores 1–2; \
+  "conditional_proceed" when overallScore is 5.0–6.9 or exactly one section scores 3–4; \
+  "pass" when overallScore < 5.0 or any section scores 1–2.
+
+Return ONLY the JSON object described in the analysis prompt. Do not include any \
+explanatory text, markdown fences, or commentary outside the JSON.
+`;
 
 // ---------------------------------------------------------------------------
 // Analysis prompt builders
+// (mirrors buildTraditionalPEAnalysisPrompt / buildIPTechAnalysisPrompt)
 // ---------------------------------------------------------------------------
 
 function buildAnalysisPrompt(
   extractedText: string,
   dealType: DealType,
+  analysisDate: string,
 ): string {
-  const dealTypeLabel =
-    dealType === 'traditional_pe'
-      ? 'Traditional PE'
-      : 'IP / Technology Commercialization';
-
-  const commonInstructions = `
-DEAL DOCUMENT:
----
-${extractedText}
----
-
-DEAL TYPE: ${dealTypeLabel}
-
-Perform a full Investment Screening Test (IST) analysis on the deal document above.`;
-
   if (dealType === 'traditional_pe') {
-    return `${commonInstructions}
+    return `\
+Perform a complete Investment Screening Tool (IST) analysis on the following deal \
+materials and return a single JSON object that EXACTLY matches the ISTAnalysis \
+TypeScript interface shown below. Do not include anything outside the JSON object.
 
-TRADITIONAL PE ANALYSIS INSTRUCTIONS:
+=== ISTAnalysis Interface (for reference) ===
+{
+  "companyName":    string,          // company / deal name found in the materials
+  "analysisDate":   "${analysisDate}",
+  "dealType":       "traditional_pe",
 
-Investment Snapshot:
-- Extract all factual data points about the company: name, industry, location, financials, employees, founding year, transaction type.
-- Calculate any derived metrics: EBITDA margin, EV/EBITDA multiple, revenue per employee, revenue CAGR.
-- Note the deal source and process type if mentioned.
+  // --- 7 IST Sections ---
+  // Each section contains: sectionName (string), score (1–10 integer),
+  //   commentary (string), keyFindings (string[])
+  //
+  // Scoring calibration:
+  //   7–10 = Strong   — a genuine positive supporting the investment thesis
+  //   5–6  = Adequate — meets baseline expectations; no material concerns
+  //   3–4  = Concerning — warrants significant further diligence
+  //   1–2  = Deal-breaking — fundamental flaw that makes investment inadvisable
 
-Investment Strengths (identify 3–6):
-- Organize into categories such as: Market Position, Business Model, Financial Profile, Market Tailwinds, IP & Differentiation, Customer Quality, Growth Trajectory.
-- Each strength must cite specific data from the document (numbers, percentages, customer names, product details).
-- Do not fabricate strengths not supported by the document.
+  "companyOverview": {
+    "sectionName": "Company Overview",
+    "score": <1–10>,
+    "commentary": "<Assess business model clarity, market positioning, competitive moat, \
+revenue quality, customer concentration, and operational track record. Note any \
+structural features (e.g., recurring revenue, switching costs) that affect \
+investment appeal.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Risk Assessment:
-- Identify all material risks with severity (high/medium/low/critical) and likelihood.
-- Common risk categories: founder/key-person dependency, customer concentration, supplier concentration, technology obsolescence, regulatory/compliance, cyclicality, competitive threats, working capital issues, lease/facility risks, integration complexity.
-- Be skeptical: if the document claims a risk is mitigated but provides no evidence, rate the severity higher.
+  "marketOpportunity": {
+    "sectionName": "Market Opportunity",
+    "score": <1–10>,
+    "commentary": "<Evaluate total addressable market size, secular growth tailwinds, \
+market fragmentation (consolidation opportunity), and competitive intensity. Identify \
+whether the macro environment favors or pressures the business over a typical 5-year \
+hold period.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Value Creation Thesis:
-- Identify specific, actionable value creation levers.
-- Organize into short_term (0–12 months), medium_term (1–3 years), long_term (3+ years).
-- Value creation levers should be realistic and tied to evidence in the document.
+  "financialProfile": {
+    "sectionName": "Financial Profile",
+    "score": <1–10>,
+    "commentary": "<Analyze LTM and 3-year historical revenue, EBITDA, and margin \
+trajectory. Assess revenue quality (recurring vs. transactional), free cash flow \
+conversion, working capital dynamics, and capex requirements. Evaluate management \
+projections for credibility and key assumptions.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Scoring (0–100 scale, where 70–100 = strong/excellent; 50–69 = adequate/mixed; 30–49 = concerning; 0–29 = deal-breaking weakness):
-- Score each dimension: market, management, financials, strategic_fit.
-- Set ip_technology score to null for Traditional PE deals.
-- Compute overall as a weighted average (market 25%, management 25%, financials 30%, strategic_fit 20%).
-- Include a 2–3 sentence justification for each score.
-- If insufficient data exists to score a dimension, use 0 and explain in the rationale.
+  "managementTeam": {
+    "sectionName": "Management Team",
+    "score": <1–10>,
+    "commentary": "<Evaluate the depth and quality of the leadership team, including CEO \
+and C-suite track records, industry experience, and equity rollover / alignment. \
+Identify any key-person risk or talent gaps that would require post-close remediation.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Key Questions (5–10):
-- Generate questions the deal team should ask management or intermediaries.
-- Each question should target a specific risk, validate a key assumption, or fill a data gap.
+  "investmentThesis": {
+    "sectionName": "Investment Thesis",
+    "score": <1–10>,
+    "commentary": "<Identify and evaluate the primary value creation levers: organic \
+growth acceleration, margin improvement, bolt-on M&A, and/or multiple expansion. \
+Assess the credibility and achievability of the sponsor's return thesis. Note any \
+misalignment between thesis and observed business fundamentals.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Recommendation:
-- Verdict: PROCEED (strong opportunity), FURTHER_REVIEW (promising but needs more data), or PASS (material concerns).
-- Include any conditions that must be met before advancing.
-- Flag disqualifying factors if present (e.g., illegal activity, irreparable financial distress).
+  "riskAssessment": {
+    "sectionName": "Risk Assessment",
+    "score": <1–10>,
+    "commentary": "<Identify the top risks (strategic, operational, financial, \
+regulatory, macro) and assess the adequacy of mitigants. Higher scores reflect \
+manageable risk profiles with strong mitigants; lower scores reflect unmitigated or \
+binary risks. Flag any deal-breaking risks explicitly.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Return the analysis as valid JSON conforming exactly to the schema in the system prompt.`;
+  "dealDynamics": {
+    "sectionName": "Deal Dynamics",
+    "score": <1–10>,
+    "commentary": "<Assess entry valuation (EV/EBITDA multiple vs. comparable \
+transactions and public comps), proposed capital structure and leverage levels, \
+anticipated deal process (competitive vs. proprietary), and implied returns (target \
+MOIC and IRR). Note any structural features (earnouts, rollover equity, reps & \
+warranties) that affect deal attractiveness.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
+
+  // --- Aggregate outputs ---
+  "overallScore":      number,   // simple average of all 7 section scores, 1 decimal
+  "recommendation":    "proceed" | "conditional_proceed" | "pass",
+  "executiveSummary":  string    // 3–5 sentence summary suitable for IC memo cover page
+}
+=== End of Interface ===
+
+=== Deal Materials ===
+${extractedText}
+=== End of Deal Materials ===
+
+Return ONLY the JSON object. No markdown, no prose, no code fences.
+`;
   }
 
-  // IP / Technology track
-  return `${commonInstructions}
+  // IP / Technology Commercialization track
+  return `\
+Perform a complete Investment Screening Tool (IST) analysis on the following IP / \
+Technology Commercialization deal materials and return a single JSON object that EXACTLY \
+matches the ISTAnalysis TypeScript interface shown below. Do not include anything outside \
+the JSON object.
 
-IP / TECHNOLOGY COMMERCIALIZATION ANALYSIS INSTRUCTIONS:
+This is an IP / Technology Commercialization track analysis. Catalyze's core thesis is \
+"orthogonal application": technology proven in one domain unlocks its greatest value \
+when applied to adjacent markets the original inventors did not target. Every section \
+must be evaluated through this lens in addition to the standard IST criteria.
 
-Technology Readiness Assessment:
-- Evaluate TRL level (1–9), prototype status, testing data, manufacturing scalability, remaining development work, and time-to-market.
-- Assess technical risk and the credibility of development timelines.
+=== ISTAnalysis Interface (for reference) ===
+{
+  "companyName":    string,          // company / entity name found in the materials
+  "analysisDate":   "${analysisDate}",
+  "dealType":       "ip_technology",
 
-IP Deep Dive:
-- Evaluate patent portfolio (granted vs. pending, claim breadth, remaining life, geographic coverage).
-- Assess trade secrets, freedom-to-operate concerns, and licensing terms from the parent company.
+  // --- 7 IST Sections ---
+  // Each section contains: sectionName (string), score (1–10 integer),
+  //   commentary (string), keyFindings (string[])
+  //
+  // Scoring calibration:
+  //   7–10 = Strong   — a genuine positive supporting the investment thesis
+  //   5–6  = Adequate — meets baseline expectations; no material concerns
+  //   3–4  = Concerning — warrants significant further diligence
+  //   1–2  = Deal-breaking — fundamental flaw that makes investment inadvisable
 
-Commercialization Analysis:
-- Identify target customers, distribution strategy, pricing model, regulatory pathway, and required partnerships.
+  "companyOverview": {
+    "sectionName": "Company Overview",
+    "score": <1–10>,
+    "commentary": "<Assess the core technology or IP asset: what problem it solves, \
+the underlying technical approach, and the current Technology Readiness Level (TRL 1–9 \
+per NASA / DoD definitions). Describe the original application domain and how the \
+technology was developed (university spin-out, corporate carve-out, independent \
+inventor, etc.). Evaluate the breadth and depth of the IP portfolio (patents granted / \
+pending, trade secrets, proprietary data sets, regulatory exclusivities). Note the \
+remaining patent life and any material IP ownership or assignment issues. Assess the \
+degree to which the technology is proven vs. still requiring development capital.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Orthogonal Applications (core to Catalyze's thesis):
-- Identify at least 2–3 potential markets beyond the technology's original application.
-- For each, estimate addressable market size and feasibility of entry.
-- Example: technology developed for aerospace that could apply to medical devices, industrial equipment, or EV manufacturing.
+  "marketOpportunity": {
+    "sectionName": "Market Opportunity",
+    "score": <1–10>,
+    "commentary": "<Evaluate the total addressable market in the primary application \
+domain, including market size, growth rate, competitive dynamics, and the technology's \
+differentiated value proposition relative to incumbent solutions. \
+ORTHOGONAL APPLICATION ANALYSIS (Catalyze core thesis): Identify at least two to three \
+adjacent markets — outside the original application domain — where this technology could \
+be applied with limited additional development. For each orthogonal market: estimate the \
+addressable opportunity, describe the technical transferability (shared physics, shared \
+data structure, shared manufacturing process, etc.), assess the go-to-market pathway, \
+and score the opportunity's attractiveness. The presence of high-value orthogonal \
+applications with clear transferability should significantly raise this section's score; \
+their absence or low viability should lower it.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Value Creation (replaces traditional PE levers):
-- Focus on commercialization milestones, revenue ramp projections, partnership value, and exit scenarios.
-- Organize into short_term (0–12 months), medium_term (1–3 years), long_term (3+ years).
+  "financialProfile": {
+    "sectionName": "Financial Profile",
+    "score": <1–10>,
+    "commentary": "<Assess the current financial state of the entity and the projected \
+commercialization economics. Evaluate: existing revenue (product sales, licensing \
+royalties, government grants, milestone payments); projected revenue ramp and key \
+assumptions; cost structure and burn rate if pre-revenue; gross margin profile for \
+each commercialization pathway (licensing typically 80–95% gross margin vs. direct \
+product 40–70%); capital requirements to reach each TRL milestone and first commercial \
+revenue; and exit valuation benchmarks (IP-focused M&A comparables, technology \
+licensing multiples, or strategic acquirer premiums). Flag any financial projections \
+that appear overly optimistic relative to comparable technology commercialization \
+timelines.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Risk Assessment:
-- Identify all material risks with severity and likelihood.
-- Key risk categories for IP deals: technology maturity, IP ownership/chain of title, regulatory approval, market adoption, competition from the parent company, exclusivity constraints, commercialization capital requirements.
+  "managementTeam": {
+    "sectionName": "Management Team",
+    "score": <1–10>,
+    "commentary": "<Evaluate the team's combined technical depth and commercial \
+execution capability — both are required for successful IP commercialization. Assess: \
+technical credentials and domain expertise of the inventors / CTO; prior IP \
+commercialization track record (successful licensing deals, spin-outs, or technology \
+exits); presence of commercial leadership with customer development and go-to-market \
+experience; IP ownership structure and assignment agreements (ensure all material IP \
+is properly assigned to the entity, not retained by inventors or universities); and \
+key-person risk. Note any gaps between technical and commercial capability that would \
+require post-close remediation.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Scoring (0–100 scale, where 70–100 = strong/excellent; 50–69 = adequate/mixed; 30–49 = concerning; 0–29 = deal-breaking weakness):
-- Score each dimension: market, management, financials, strategic_fit, ip_technology.
-- ip_technology score is REQUIRED for IP/Technology deals.
-- Compute overall as a weighted average (market 20%, management 15%, financials 20%, strategic_fit 20%, ip_technology 25%).
-- Include a 2–3 sentence justification for each score.
+  "investmentThesis": {
+    "sectionName": "Investment Thesis",
+    "score": <1–10>,
+    "commentary": "<Articulate and evaluate the Catalyze commercialization thesis for \
+this opportunity across three sub-dimensions: \
+(1) IP DEFENSIBILITY — Assess the strength of the IP moat: claim breadth and \
+defensibility of granted patents; freedom-to-operate (FTO) relative to competing IP; \
+trade-secret protection; regulatory exclusivities (FDA, FAA, etc.); and the \
+competitive response risk (can a well-funded incumbent design around the patents or \
+develop a superior solution within the hold period?). \
+(2) COMMERCIALIZATION PATHWAY — Identify and rank the most credible path(s) to \
+monetization: pure licensing to industry players; co-development / joint venture with a \
+strategic; direct product development and commercialization; government contract / OTA \
+vehicle; or strategic sale of the IP estate. For each pathway, assess time-to-revenue, \
+capital intensity, probability of success, and implied economics. \
+(3) ORTHOGONAL APPLICATION UPSIDE — Quantify the incremental value creation available \
+by applying this technology to the highest-potential adjacent market identified in the \
+Market Opportunity section. Assess technical feasibility, capital required to unlock the \
+adjacent application, and the expected MOIC uplift relative to the primary-domain-only \
+scenario.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Key Questions (5–10):
-- Focus on technology validation, IP defensibility, commercialization pathway, and partnership requirements.
+  "riskAssessment": {
+    "sectionName": "Risk Assessment",
+    "score": <1–10>,
+    "commentary": "<Identify and score the top risks specific to IP / technology \
+commercialization investments, including: \
+(1) Technology risk — probability that the technology fails to perform as expected at \
+higher TRL levels or at commercial scale; \
+(2) IP risk — risk of patent invalidation, adverse IPR / PGR proceedings, FTO issues \
+with third-party patents, or inadequate trade-secret protection; \
+(3) Commercialization / market adoption risk — risk that target customers do not adopt \
+the technology at projected rates; \
+(4) Regulatory risk — required approvals (FDA, FCC, FAA, EPA, export controls / ITAR) \
+that could delay or block commercialization; \
+(5) Funding / milestone risk — dependency on staged capital tranches tied to technical \
+milestones that may slip; \
+(6) Key-person / inventor risk — concentration of know-how in one or two individuals \
+not contractually bound post-close. \
+Higher scores reflect strong mitigants and manageable risk profiles; lower scores \
+reflect unmitigated binary risks. Flag any deal-breaking risks explicitly.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Recommendation:
-- Verdict: PROCEED, FURTHER_REVIEW, or PASS.
-- Flag disqualifying factors if present (e.g., encumbered IP, no clear commercialization path).
+  "dealDynamics": {
+    "sectionName": "Deal Dynamics",
+    "score": <1–10>,
+    "commentary": "<Assess the deal structure and return potential: \
+(1) VALUATION — Evaluate the proposed entry valuation relative to comparable IP \
+transactions, technology licensing multiples, and strategic acquirer precedents. \
+(2) DEAL STRUCTURE — Assess the proposed investment instrument (equity, convertible, \
+royalty-backed financing, milestone-contingent tranches) and its alignment with the \
+technology's risk-reward profile. \
+(3) RETURN PROFILE — Model the target MOIC and IRR across the primary commercialization \
+pathway and the orthogonal-application upside scenario. \
+(4) PROCESS — Characterize the deal process (proprietary, lightly competitive, broadly \
+marketed) and any timing pressures.>",
+    "keyFindings": ["<finding 1>", "..."]
+  },
 
-Return the analysis as valid JSON conforming exactly to the schema in the system prompt.`;
+  // --- Aggregate outputs ---
+  "overallScore":      number,   // simple average of all 7 section scores, 1 decimal
+  "recommendation":    "proceed" | "conditional_proceed" | "pass",
+  "executiveSummary":  string    // 3–5 sentence summary: core technology, TRL, primary
+                                 // commercialization pathway, orthogonal application
+                                 // opportunity, and Catalyze's recommended action
+}
+=== End of Interface ===
+
+=== Deal Materials ===
+${extractedText}
+=== End of Deal Materials ===
+
+Return ONLY the JSON object. No markdown, no prose, no code fences.
+`;
 }
 
 // ---------------------------------------------------------------------------
@@ -292,10 +436,6 @@ function isNumber(v: unknown): v is number {
   return typeof v === 'number' && isFinite(v);
 }
 
-function isBoolean(v: unknown): v is boolean {
-  return typeof v === 'boolean';
-}
-
 function isArray(v: unknown): v is unknown[] {
   return Array.isArray(v);
 }
@@ -304,112 +444,56 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v);
 }
 
+/** Validate that a value is a valid ISTScore integer (1–10). */
+function isISTScore(v: unknown): v is ISTScore {
+  return (
+    typeof v === 'number' &&
+    Number.isInteger(v) &&
+    v >= 1 &&
+    v <= 10
+  );
+}
+
+/** Validate a single IST section object. */
+function validateISTSection(s: unknown): s is ISTSectionWithName {
+  if (!isObject(s)) return false;
+  if (!isString(s.sectionName)) return false;
+  if (!isISTScore(s.score)) return false;
+  if (!isString(s.commentary)) return false;
+  if (!isArray(s.keyFindings)) return false;
+  for (const f of s.keyFindings) {
+    if (!isString(f)) return false;
+  }
+  return true;
+}
+
 function validateISTAnalysis(data: unknown): data is ISTAnalysis {
   if (!isObject(data)) return false;
 
-  // Top-level string fields
-  if (!isString(data.schema_version)) return false;
-  if (!isString(data.generated_at)) return false;
-  if (!isString(data.company_name)) return false;
-  if (data.deal_type !== 'traditional_pe' && data.deal_type !== 'ip_technology')
+  // Top-level scalar fields
+  if (!isString(data.companyName)) return false;
+  if (!isString(data.analysisDate)) return false;
+  if (data.dealType !== 'traditional_pe' && data.dealType !== 'ip_technology')
     return false;
-  if (!isString(data.executive_summary)) return false;
 
-  // strengths
-  if (!isArray(data.strengths)) return false;
-  for (const s of data.strengths) {
-    if (!isObject(s)) return false;
-    if (!isString(s.title) || !isString(s.description)) return false;
-    if (s.significance !== 'low' && s.significance !== 'medium' && s.significance !== 'high')
-      return false;
-  }
+  // Seven IST sections
+  if (!validateISTSection(data.companyOverview)) return false;
+  if (!validateISTSection(data.marketOpportunity)) return false;
+  if (!validateISTSection(data.financialProfile)) return false;
+  if (!validateISTSection(data.managementTeam)) return false;
+  if (!validateISTSection(data.investmentThesis)) return false;
+  if (!validateISTSection(data.riskAssessment)) return false;
+  if (!validateISTSection(data.dealDynamics)) return false;
 
-  // risks
-  if (!isArray(data.risks)) return false;
-  for (const r of data.risks) {
-    if (!isObject(r)) return false;
-    if (!isString(r.title) || !isString(r.description)) return false;
-    if (
-      r.severity !== 'low' &&
-      r.severity !== 'medium' &&
-      r.severity !== 'high' &&
-      r.severity !== 'critical'
-    )
-      return false;
-    if (
-      r.likelihood !== 'low' &&
-      r.likelihood !== 'medium' &&
-      r.likelihood !== 'high'
-    )
-      return false;
-  }
-
-  // value_creation
-  if (!isArray(data.value_creation)) return false;
-  for (const v of data.value_creation) {
-    if (!isObject(v)) return false;
-    if (!isString(v.title) || !isString(v.description)) return false;
-    if (
-      v.timeframe !== 'short_term' &&
-      v.timeframe !== 'medium_term' &&
-      v.timeframe !== 'long_term'
-    )
-      return false;
-    if (v.potential !== 'low' && v.potential !== 'medium' && v.potential !== 'high')
-      return false;
-  }
-
-  // score
-  if (!isObject(data.score)) return false;
-  const score = data.score;
-  if (!isNumber(score.overall) || !isNumber(score.market)) return false;
-  if (!isNumber(score.management) || !isNumber(score.financials)) return false;
-  if (!isNumber(score.strategic_fit)) return false;
-  if (score.ip_technology !== null && !isNumber(score.ip_technology)) return false;
-  if (!isObject(score.rationale)) return false;
-  const rat = score.rationale;
+  // Aggregate outputs
+  if (!isNumber(data.overallScore)) return false;
   if (
-    !isString(rat.overall) ||
-    !isString(rat.market) ||
-    !isString(rat.management) ||
-    !isString(rat.financials) ||
-    !isString(rat.strategic_fit)
+    data.recommendation !== 'proceed' &&
+    data.recommendation !== 'conditional_proceed' &&
+    data.recommendation !== 'pass'
   )
     return false;
-  if (rat.ip_technology !== null && !isString(rat.ip_technology)) return false;
-
-  // recommendation
-  if (!isObject(data.recommendation)) return false;
-  const rec = data.recommendation;
-  if (
-    rec.verdict !== 'PROCEED' &&
-    rec.verdict !== 'FURTHER_REVIEW' &&
-    rec.verdict !== 'PASS'
-  )
-    return false;
-  if (!isString(rec.summary)) return false;
-  if (!isArray(rec.conditions)) return false;
-  if (!isBoolean(rec.is_disqualified)) return false;
-  if (rec.disqualifier_reason !== null && !isString(rec.disqualifier_reason))
-    return false;
-
-  // key_questions
-  if (!isArray(data.key_questions)) return false;
-  for (const q of data.key_questions) {
-    if (!isObject(q)) return false;
-    if (!isString(q.question) || !isString(q.rationale)) return false;
-    if (q.priority !== 'low' && q.priority !== 'medium' && q.priority !== 'high')
-      return false;
-  }
-
-  // data_quality
-  if (!isObject(data.data_quality)) return false;
-  const dq = data.data_quality;
-  if (dq.confidence !== 'low' && dq.confidence !== 'medium' && dq.confidence !== 'high')
-    return false;
-  if (!isNumber(dq.completeness_pct)) return false;
-  if (!isArray(dq.missing_data)) return false;
-  if (!isString(dq.caveats)) return false;
+  if (!isString(data.executiveSummary)) return false;
 
   return true;
 }
@@ -537,7 +621,14 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     const model = 'claude-sonnet-4-5-20250929';
-    const analysisPrompt = buildAnalysisPrompt(extractedText, dealType as DealType);
+    const analysisDate = new Date().toISOString().slice(0, 10);
+    const systemPrompt =
+      dealType === 'traditional_pe' ? TRADITIONAL_PE_SYSTEM_PROMPT : IP_TECH_SYSTEM_PROMPT;
+    const analysisPrompt = buildAnalysisPrompt(
+      extractedText,
+      dealType as DealType,
+      analysisDate,
+    );
 
     const requestStartMs = Date.now();
     let anthropicResponse: Response;
@@ -557,7 +648,7 @@ serve(async (req: Request): Promise<Response> => {
           // responses are 2 000–5 000 tokens). Raise this limit if longer
           // documents or more detailed analyses are required in the future.
           max_tokens: 8192,
-          system: IST_SYSTEM_PROMPT,
+          system: systemPrompt,
           messages: [{ role: 'user', content: analysisPrompt }],
         }),
       });
