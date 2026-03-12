@@ -1,6 +1,6 @@
 /**
  * IST (Investment Screening Tool) Analysis Types
- * Used across all deal-type tracks (Traditional PE, Growth Equity, etc.)
+ * Used across all deal-type tracks (Traditional PE, IP/Technology Commercialization, Growth Equity, etc.)
  */
 
 /** Score range for any IST section (1–10 integer) */
@@ -83,7 +83,7 @@ export interface ISTAnalysis {
   /** ISO 8601 date string (YYYY-MM-DD) when the analysis was performed */
   analysisDate: string;
   /** The deal-type track this analysis was generated under */
-  dealType: "traditional_pe" | "growth_equity" | "venture" | "real_estate" | "credit";
+  dealType: "traditional_pe" | "ip_technology" | "growth_equity" | "venture" | "real_estate" | "credit";
 
   // --- 7 IST Sections ---
   companyOverview: CompanyOverview;
