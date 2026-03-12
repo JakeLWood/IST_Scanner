@@ -1,0 +1,7 @@
+# Next.js project dependencies and build artifacts
+ist-screener/node_modules
+ist-screener/.next
+ist-screener/out
+ist-screener/build
+ist-screener/.env*.local
+ist-screener/next-env.d.ts
