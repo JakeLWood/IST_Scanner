@@ -64,7 +64,7 @@ export default function UploadPage() {
     return null;
   }
 
-  function handleFiles(files: FileList | null) {
+  const handleFiles = useCallback((files: FileList | null) => {
     if (!files || files.length === 0) return;
     const f = files[0];
     const error = validateFile(f);
@@ -75,7 +75,7 @@ export default function UploadPage() {
       setFileError(null);
       setFile(f);
     }
-  }
+  }, []);
 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -96,15 +96,17 @@ export default function UploadPage() {
       setDragActive(false);
       handleFiles(e.dataTransfer.files);
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [handleFiles]
   );
 
-  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    handleFiles(e.target.files);
-    // Reset so the same file can be re-selected after removal
-    e.target.value = "";
-  }
+  const handleInputChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      handleFiles(e.target.files);
+      // Reset so the same file can be re-selected after removal
+      e.target.value = "";
+    },
+    [handleFiles]
+  );
 
   function removeFile() {
     setFile(null);
