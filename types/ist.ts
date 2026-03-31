@@ -309,6 +309,29 @@ export interface ISTAnalysis {
 }
 
 // ---------------------------------------------------------------------------
+// Screening metadata — caller-supplied context attached to a new screening
+// ---------------------------------------------------------------------------
+
+/**
+ * Optional metadata the caller provides when saving a new screening record.
+ * These fields supplement the AI-extracted data.
+ */
+export interface ScreeningMetadata {
+  /**
+   * Where the deal was sourced from (e.g. "Investment Bank / Advisor").
+   * Stored in `screenings.deal_source`.
+   */
+  dealSource?: string | null;
+  /**
+   * Overrides the company name extracted by Claude.
+   * When blank the name from `ISTAnalysis.company_name` is used.
+   */
+  dealNameOverride?: string | null;
+  /** Free-text reviewer notes stored in `screenings.notes`. */
+  notes?: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Database / lifecycle types
 // ---------------------------------------------------------------------------
 
