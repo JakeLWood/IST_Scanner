@@ -10,6 +10,7 @@
  */
 
 import type { ISTAnalysis } from "../types/ist-analysis";
+import type { ISTDimensionScore } from "../types/ist";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -342,4 +343,55 @@ export function scoreAnalysis(
     dimensionScores,
     dimensionWeights: weights,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Composite score helper for the PRD §5.4 array-based ISTAnalysis schema
+// ---------------------------------------------------------------------------
+
+/**
+ * Computes a weighted composite score from an array of {@link ISTDimensionScore}
+ * objects (the format returned by Claude in `ISTAnalysis.scores`).
+ *
+ * Each non-null score receives an equal weight.  Null scores (insufficient
+ * data) are excluded from the average so they do not unfairly penalise the
+ * deal.
+ *
+ * @param scores     - Array of per-dimension scores from `ISTAnalysis.scores`.
+ * @param thresholds - Optional overrides for PROCEED / FURTHER_REVIEW cutoffs.
+ *
+ * @returns The clamped composite score (1.0–10.0) and the corresponding
+ *          recommendation bucket.
+ */
+export function computeCompositeScore(
+  scores: ISTDimensionScore[],
+  thresholds?: Partial<ScoringThresholds>,
+): { compositeScore: number; recommendation: FinalRecommendation } {
+  const validScores = scores.filter((s) => s.score !== null);
+
+  if (validScores.length === 0) {
+    return { compositeScore: 1, recommendation: "PASS" };
+  }
+
+  const equalWeight = 100 / validScores.length;
+  let raw = 0;
+  for (const ds of validScores) {
+    raw += ((ds.score as number) * equalWeight) / 100;
+  }
+
+  const compositeScore =
+    Math.round(Math.min(10, Math.max(1, raw)) * 10) / 10;
+
+  const merged: ScoringThresholds = { ...DEFAULT_THRESHOLDS, ...thresholds };
+
+  let recommendation: FinalRecommendation;
+  if (compositeScore >= merged.proceed) {
+    recommendation = "PROCEED";
+  } else if (compositeScore >= merged.furtherReview) {
+    recommendation = "FURTHER_REVIEW";
+  } else {
+    recommendation = "PASS";
+  }
+
+  return { compositeScore, recommendation };
 }
