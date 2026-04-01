@@ -8,18 +8,20 @@
  * Responsibilities:
  *  1. Compute the composite score and recommendation via the scoring engine.
  *  2. Insert a new row that stores `raw_document_text`, `ai_response_json`,
- *     `scores_json`, and `snapshot_json` in the correct columns.
+ *     and `scores_json` in the correct columns.
  *  3. Return the new screening UUID so the caller can redirect to it.
  */
 
 import { createClient } from "../supabase/server";
-import { computeCompositeScore } from "../scoringEngine";
-import type { ISTAnalysis, ScreeningMetadata } from "../../types/ist";
+import { scoreAnalysis, DEFAULT_WEIGHTS } from "../scoringEngine";
+import type { ISTAnalysis } from "../../types/ist-analysis";
+import type { ScreeningMetadata } from "../../types/ist";
 
 /**
  * Saves a completed IST analysis to Supabase and returns the new screening ID.
  *
- * @param analysis  - Full Claude analysis conforming to `ISTAnalysis` (PRD §5.4).
+ * @param analysis  - Full Claude analysis conforming to `ISTAnalysis`
+ *                    (the 7-section format returned by the analyze-deal edge function).
  * @param rawText   - Raw text extracted from the uploaded document.
  * @param userId    - UUID of the authenticated user creating the screening.
  * @param metadata  - Optional caller-supplied context (deal source, notes, etc.).
@@ -39,15 +41,14 @@ export async function saveScreening(
   // ------------------------------------------------------------------
   // 1. Generate composite score and recommendation via the scoring engine
   // ------------------------------------------------------------------
-  const { compositeScore, recommendation } = computeCompositeScore(
-    analysis.scores,
-  );
+  const scoringResult = scoreAnalysis(analysis, { weights: DEFAULT_WEIGHTS });
+  const { compositeScore, recommendation, isDisqualified } = scoringResult;
 
   // ------------------------------------------------------------------
   // 2. Resolve company name — prefer caller override over extracted name
   // ------------------------------------------------------------------
   const overrideName = metadata.dealNameOverride?.trim();
-  const companyName = overrideName ? overrideName : analysis.company_name;
+  const companyName = overrideName ? overrideName : analysis.companyName;
 
   // ------------------------------------------------------------------
   // 3. Persist the screening record
@@ -57,16 +58,15 @@ export async function saveScreening(
     .insert({
       user_id: userId,
       company_name: companyName,
-      deal_type: analysis.deal_type,
+      deal_type: analysis.dealType,
       deal_source: metadata.dealSource ?? null,
       composite_score: compositeScore,
       recommendation,
       raw_document_text: rawText,
       ai_response_json: analysis,
-      scores_json: analysis.scores,
-      snapshot_json: analysis.snapshot,
+      scores_json: scoringResult,
       notes: metadata.notes ?? null,
-      is_disqualified: false,
+      is_disqualified: isDisqualified,
       disqualifier_ids: [],
     })
     .select("id")
