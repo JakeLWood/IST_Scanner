@@ -119,24 +119,15 @@ async function ocrPdf(buffer: Buffer): Promise<string> {
 }
 
 /**
- * Creates a canvas element that works in both browser and Node.js environments.
- * In the browser the native `document.createElement` is used; in Node.js the
- * optional `canvas` peer dependency is used as a drop-in replacement.
+ * Creates a canvas element using the browser's native DOM API.
+ * This file is a client-side module that always runs in the browser,
+ * so `document.createElement` is always available.
  */
 function makeCanvas(width: number, height: number): HTMLCanvasElement {
-  if (typeof document !== "undefined") {
-    const el = document.createElement("canvas");
-    el.width = width;
-    el.height = height;
-    return el;
-  }
-
-  // Node.js path – requires the optional `canvas` peer dependency.
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodeCanvas = require("canvas") as {
-    createCanvas: (w: number, h: number) => HTMLCanvasElement;
-  };
-  return nodeCanvas.createCanvas(width, height);
+  const el = document.createElement("canvas");
+  el.width = width;
+  el.height = height;
+  return el;
 }
 
 /**
