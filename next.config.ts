@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  turbopack: {},
   webpack: (config) => {
     // `canvas` is a Node.js-only optional peer dep used by pdfjs-dist for
     // server-side rendering. The browser code-path is guarded by
