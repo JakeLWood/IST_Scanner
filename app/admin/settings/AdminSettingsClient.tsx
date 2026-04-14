@@ -370,7 +370,7 @@ export default function AdminSettingsClient({ initial }: { initial: InitialConfi
   }, [activeTrack]);
 
   const handleSave = useCallback(async () => {
-    if (!weightsValid && !thresholdsValid) return;
+    if (!weightsValid || !thresholdsValid) return;
     setSaving(true);
     setSaveMessage(null);
 
