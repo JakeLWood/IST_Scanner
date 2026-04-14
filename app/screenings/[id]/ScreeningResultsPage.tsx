@@ -350,13 +350,22 @@ function ScoreRadarChart({
 // ---------------------------------------------------------------------------
 
 /**
+ * Estimates TRL (1–9) from a 1–10 IST score when trlLevel is not explicitly
+ * provided. The mapping linearly scales the 10-point score to the 9-point
+ * NASA TRL scale: TRL = round(score / 10 × 9), clamped to [1, 9].
+ */
+function estimateTRLFromScore(score: number): number {
+  return Math.max(1, Math.min(9, Math.round((score / 10) * 9)));
+}
+
+/**
  * TRL Gauge — visual representation of Technology Readiness Level (1–9).
  * The active level and all levels below it are coloured by maturity band.
  */
 function TRLGauge({ section }: { section: TechnologyReadiness }) {
   const { score, trlLevel, commentary, keyFindings } = section;
   // trlLevel is canonical (1–9 NASA scale). If absent, estimate from score.
-  const trl = trlLevel ?? Math.max(1, Math.min(9, Math.round((score / 10) * 9)));
+  const trl = trlLevel ?? estimateTRLFromScore(score);
 
   function trlColor(level: number) {
     if (level >= 7) return "bg-emerald-500 text-white";
@@ -582,6 +591,27 @@ function OrthogonalApplicationsSection({
 // Main page component
 // ---------------------------------------------------------------------------
 
+/**
+ * Returns a map from each {@link IPSnapshotKey} to the underlying
+ * {@link ISTSection} that provides its data. Used by the Score Analysis,
+ * Strengths, and Risk Assessment sections.
+ */
+function getIPSectionMap(
+  analysis: ISTAnalysis,
+): Record<IPSnapshotKey, ISTSection | undefined> {
+  return {
+    technologyReadiness: analysis.technologyReadiness,
+    ipStrengthDefensibility: analysis.ipStrengthDefensibility,
+    marketOpportunity: analysis.marketOpportunity,
+    commercializationPathway: analysis.commercializationPathway,
+    orthogonalApplicationPotential: analysis.orthogonalApplicationPotential,
+    valueCreationPotential: analysis.investmentThesis,
+    riskProfile: analysis.riskAssessment,
+    managementTeam: analysis.managementTeam,
+    strategicFit: analysis.companyOverview,
+  };
+}
+
 export interface ScreeningResultsPageProps {
   analysis: ISTAnalysis;
   scoringResult: ScoringResult;
@@ -608,8 +638,9 @@ export default function ScreeningResultsPage({
     (a, b) => dimensionScores[a] - dimensionScores[b]
   );
 
-  // ---- IP track: per-dimension scores from analysis fields ----
+  // ---- IP track: per-dimension scores and section map ----
   const ipDimensionScores = isIPTech ? getIPDimensionScores(analysis) : null;
+  const ipSectionMap = isIPTech ? getIPSectionMap(analysis) : null;
 
   // Radar data — varies by track
   const radarData = isIPTech && ipDimensionScores
@@ -856,25 +887,13 @@ export default function ScreeningResultsPage({
                 </span>
               </h3>
 
-              {isIPTech && ipDimensionScores ? (
+              {isIPTech && ipDimensionScores && ipSectionMap ? (
                 /* IP track — show IP-specific dimension cards */
                 IP_SNAPSHOT_KEYS
                   .filter((k) => ipDimensionScores[k] !== null)
                   .sort((a, b) => (ipDimensionScores[a] ?? 0) - (ipDimensionScores[b] ?? 0))
                   .map((key) => {
-                    // Map snapshot key to the underlying ISTSection for the card
-                    const sectionMap: Record<IPSnapshotKey, ISTSection | undefined> = {
-                      technologyReadiness: analysis.technologyReadiness,
-                      ipStrengthDefensibility: analysis.ipStrengthDefensibility,
-                      marketOpportunity: analysis.marketOpportunity,
-                      commercializationPathway: analysis.commercializationPathway,
-                      orthogonalApplicationPotential: analysis.orthogonalApplicationPotential,
-                      valueCreationPotential: analysis.investmentThesis,
-                      riskProfile: analysis.riskAssessment,
-                      managementTeam: analysis.managementTeam,
-                      strategicFit: analysis.companyOverview,
-                    };
-                    const section = sectionMap[key];
+                    const section = ipSectionMap[key];
                     if (!section) return null;
                     return (
                       <DimensionCard
@@ -902,23 +921,12 @@ export default function ScreeningResultsPage({
         {/* STRENGTHS — sections scoring 7–10                                 */}
         {/* ---------------------------------------------------------------- */}
         {(() => {
-          if (isIPTech && ipDimensionScores) {
+          if (isIPTech && ipDimensionScores && ipSectionMap) {
             // IP track — highlight top IP dimensions
             const strongKeys = IP_SNAPSHOT_KEYS.filter(
               (k) => (ipDimensionScores[k] ?? 0) >= 7
             );
             if (strongKeys.length === 0) return null;
-            const sectionMap: Record<IPSnapshotKey, ISTSection | undefined> = {
-              technologyReadiness: analysis.technologyReadiness,
-              ipStrengthDefensibility: analysis.ipStrengthDefensibility,
-              marketOpportunity: analysis.marketOpportunity,
-              commercializationPathway: analysis.commercializationPathway,
-              orthogonalApplicationPotential: analysis.orthogonalApplicationPotential,
-              valueCreationPotential: analysis.investmentThesis,
-              riskProfile: analysis.riskAssessment,
-              managementTeam: analysis.managementTeam,
-              strategicFit: analysis.companyOverview,
-            };
             return (
               <section>
                 <h2 className="text-xs font-semibold text-slate-200 mb-4 uppercase tracking-wider">
@@ -926,7 +934,7 @@ export default function ScreeningResultsPage({
                 </h2>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {strongKeys.map((key) => {
-                    const section = sectionMap[key];
+                    const section = ipSectionMap[key];
                     if (!section) return null;
                     return (
                       <SectionCommentaryCard
@@ -1030,35 +1038,25 @@ export default function ScreeningResultsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {(isIPTech
+                  {(isIPTech && ipSectionMap
                     ? /* IP track — risk table built from IP dimensions ≤ 6 */
                       (() => {
-                        const sectionMap: Partial<Record<IPSnapshotKey, ISTSection>> = {
-                          technologyReadiness: analysis.technologyReadiness,
-                          ipStrengthDefensibility: analysis.ipStrengthDefensibility,
-                          marketOpportunity: analysis.marketOpportunity,
-                          commercializationPathway: analysis.commercializationPathway,
-                          orthogonalApplicationPotential: analysis.orthogonalApplicationPotential,
-                          valueCreationPotential: analysis.investmentThesis,
-                          riskProfile: analysis.riskAssessment,
-                          managementTeam: analysis.managementTeam,
-                          strategicFit: analysis.companyOverview,
-                        };
                         return [
                           // riskProfile always first
                           analysis.riskAssessment,
-                          // other IP dims ≤ 6, sorted by score
+                          // other IP dims with score ≤ 6 and a resolved section, sorted by score
                           ...IP_SNAPSHOT_KEYS.filter(
                             (k) =>
                               k !== "riskProfile" &&
-                              (ipDimensionScores?.[k] ?? 11) <= 6
+                              ipDimensionScores?.[k] != null &&
+                              (ipDimensionScores[k] as number) <= 6
                           )
                             .sort(
                               (a, b) =>
                                 (ipDimensionScores?.[a] ?? 0) -
                                 (ipDimensionScores?.[b] ?? 0)
                             )
-                            .map((k) => sectionMap[k])
+                            .map((k) => ipSectionMap[k])
                             .filter((s): s is ISTSection => s !== undefined),
                         ];
                       })()
