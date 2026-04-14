@@ -103,7 +103,188 @@ const DEMO_ANALYSIS: ISTAnalysis = {
     "Acme Industrial Holdings represents a solid mid-market industrial platform with a defensible market position, experienced management team, and clear operational improvement levers. The key risk factors — customer concentration, automotive channel cyclicality, and elevated post-transaction leverage — require careful diligence and structuring. Subject to confirmatory financial diligence and satisfactory resolution of the plant consolidation timeline, this opportunity warrants progression to a formal Letter of Intent.",
 };
 
+// ---------------------------------------------------------------------------
+// Demo data — IP / Technology Commercialization track
+// ---------------------------------------------------------------------------
+
+const DEMO_IP_ANALYSIS: ISTAnalysis = {
+  companyName: "NovaPhoLaser IP Portfolio",
+  analysisDate: "2026-03-15",
+  dealType: "ip_technology",
+  companyOverview: {
+    sectionName: "Company Overview",
+    score: 7,
+    commentary:
+      "NovaPhoLaser's fiber-optic sensing technology originated from a $120M DARPA-funded research programme at a Fortune 100 aerospace division. The IP package comprises 42 granted patents, 18 pending applications, and comprehensive trade-secret documentation.",
+    keyFindings: [
+      "42 granted patents across US, EU, and Japan",
+      "18 pending applications covering next-generation sensing arrays",
+      "Originated from $120M DARPA-funded research — military-grade validation",
+      "Seller: Fortune 100 aerospace company executing non-core IP divestiture",
+    ],
+  },
+  marketOpportunity: {
+    sectionName: "Market Opportunity",
+    score: 8,
+    commentary:
+      "The global fiber-optic sensing market is valued at $3.8B and growing at 12% CAGR, driven by industrial automation, structural health monitoring, and perimeter security applications. Orthogonal markets (medical diagnostics, autonomous vehicles) add $22B+ in adjacent TAM.",
+    keyFindings: [
+      "Primary market: $3.8B fiber-optic sensing at 12% CAGR",
+      "Industrial automation segment alone: $1.4B by 2028",
+      "Adjacent TAM (medical + automotive): $22B+ combined",
+      "Regulatory tailwinds: infrastructure monitoring mandates in EU and US",
+    ],
+  },
+  financialProfile: {
+    sectionName: "Financial Profile",
+    score: 5,
+    commentary:
+      "No current revenue — pre-commercialization stage. Licensing income of $2.1M/year from three early adopters. Estimated commercialization capex: $18M over 36 months. Royalty rate benchmarking suggests $8–14M/year at scale.",
+    keyFindings: [
+      "Current licensing revenue: $2.1M/year (3 licensees)",
+      "Commercialization capex estimate: $18M over 36 months",
+      "Projected royalty income at scale: $8–14M/year",
+      "No debt; IP valuation supported by comparable patent transactions",
+    ],
+  },
+  managementTeam: {
+    sectionName: "Management Team",
+    score: 6,
+    commentary:
+      "Lead inventor (Dr. Patel) has agreed to a 3-year consulting arrangement. No existing commercial team — go-to-market execution will require hiring a VP of Business Development and two applications engineers within Year 1.",
+    keyFindings: [
+      "Lead inventor available for 3-year consulting engagement",
+      "GP-level hiring needed: VP Business Development, 2 applications engineers",
+      "Advisory board includes ex-CEO of a $500M photonics company",
+      "No existing sales or customer success infrastructure",
+    ],
+  },
+  investmentThesis: {
+    sectionName: "Investment Thesis",
+    score: 8,
+    commentary:
+      "Core thesis: acquire proven, defence-validated sensing IP and commercialise across three orthogonal verticals (industrial automation, structural health monitoring, medical diagnostics). Portfolio approach de-risks reliance on any single application.",
+    keyFindings: [
+      "Defence validation substantially de-risks core technology claims",
+      "Three identified commercialization verticals with independent revenue streams",
+      "Patent moat provides 12+ years of defensible IP runway",
+      "Comparable photonics IP transactions: 3–5x revenue multiple on projected royalties",
+    ],
+  },
+  riskAssessment: {
+    sectionName: "Risk Assessment",
+    score: 5,
+    commentary:
+      "Primary risks are commercialization execution (no existing sales infrastructure), regulatory pathway uncertainty for medical application, and potential freedom-to-operate challenges in the EU. Technology risk is low given TRL 7 status.",
+    keyFindings: [
+      "Commercialization execution risk: no existing sales team or channel",
+      "Medical application regulatory pathway: 18–24 month FDA clearance process",
+      "Freedom to operate: 2 EU competitor patents require monitoring",
+      "Technology risk: LOW — TRL 7, validated in operational environment",
+    ],
+  },
+  dealDynamics: {
+    sectionName: "Deal Dynamics",
+    score: 6,
+    commentary:
+      "Proprietary process — no known competing bidders. Seller (Fortune 100 aerospace) motivated by strategic portfolio cleanup; asking price of $28M for full IP assignment. Structure flexibility available (licensing vs. full assignment).",
+    keyFindings: [
+      "Proprietary process: no known competing bidders",
+      "Asking price: $28M (full IP assignment including patent portfolio + trade secrets)",
+      "Alternative structure: exclusive worldwide licensing at $4M/year + royalties",
+      "Seller timeline: 90-day close preferred; flexibility available",
+    ],
+  },
+  // IP / Technology Track Sections (PRD §3.4)
+  technologyReadiness: {
+    sectionName: "Technology Readiness",
+    score: 8,
+    trlLevel: 7,
+    commentary:
+      "The core fiber-optic sensing array has been validated at TRL 7 — prototype demonstrated in the operational environment of a military aircraft wing during a DARPA programme. Manufacturing scale-up plan exists; remaining work is production hardening and cost-down.",
+    keyFindings: [
+      "TRL 7: System prototype demonstrated in operational (military aircraft) environment",
+      "12-month programme to reach TRL 8 (production qualification)",
+      "Manufacturing partner identified: Tier-2 photonics fab in Pennsylvania",
+      "Bill of materials cost-down target: 40% reduction at production volume",
+      "Time-to-market estimate: 18–24 months for industrial automation vertical",
+    ],
+  },
+  ipStrengthDefensibility: {
+    sectionName: "IP Strength & Defensibility",
+    score: 8,
+    commentary:
+      "The portfolio is exceptionally well-structured: 42 granted patents with broad independent claims, no licensing encumbrances, and freedom-to-operate confirmed in the US and Japan. EU has 2 competitor patents that require monitoring but do not block the core claims.",
+    keyFindings: [
+      "42 granted patents: US (28), EU (8), Japan (6) — remaining life 12–17 years",
+      "18 pending applications covering next-generation sensing configurations",
+      "No licensing encumbrances or revenue-sharing obligations",
+      "Freedom to operate: confirmed US and Japan; EU monitoring advised",
+      "Trade secrets: 340-page technical documentation package included",
+      "Competitor IP landscape: 2 EU patents require monitoring (non-blocking to core claims)",
+    ],
+  },
+  commercializationPathway: {
+    sectionName: "Commercialization Pathway",
+    score: 7,
+    commentary:
+      "Clear phased approach: Year 1 targets the industrial automation OEM market via direct licensing; Year 2 expands into structural health monitoring through a distribution partnership; Year 3 initiates FDA submission for the medical diagnostics application.",
+    phaseTimeline: [
+      "Phase 1 (Months 1–12): Hire BD team; close 3 industrial OEM licensing agreements; target $3M ARR",
+      "Phase 2 (Months 13–24): Launch structural health monitoring vertical via Acuity Systems partnership; target $6M ARR",
+      "Phase 3 (Months 25–36): File FDA 510(k) for medical diagnostics application; initiate JV discussions with diagnostics OEM",
+      "Phase 4 (Months 37–48): International expansion (EU, Japan); target $14M ARR",
+    ],
+    keyFindings: [
+      "Distribution partner for structural monitoring identified: Acuity Systems ($280M revenue)",
+      "3 industrial OEM LOIs in hand — addressable contracts worth $4.2M ARR",
+      "FDA regulatory pathway: 510(k) (predicate-based); estimated 18-month process",
+      "Pricing model: upfront licensing fee ($250K–$500K) + 4–6% royalty on product revenue",
+    ],
+  },
+  orthogonalApplicationPotential: {
+    sectionName: "Orthogonal Application Potential",
+    score: 9,
+    commentary:
+      "This is a core Catalyze thesis play: technology developed for military aerospace sensing has three credible, independent commercial applications across different buyer verticals. Each application is independently viable and does not require the others to succeed.",
+    adjacentMarkets: [
+      {
+        market: "Industrial Automation & Robotics",
+        tamEstimate: "$1.4B by 2028 (14% CAGR)",
+        rationale:
+          "High-precision distance and vibration sensing is critical for next-generation robotic arms and CNC equipment. The technology outperforms incumbent laser interferometry at 1/3 the unit cost — validated in a GM pilot programme.",
+      },
+      {
+        market: "Structural Health Monitoring",
+        tamEstimate: "$890M by 2027 (11% CAGR)",
+        rationale:
+          "EU and US bridge/pipeline inspection mandates are driving demand for embedded sensing solutions. The fiber-optic array can be embedded in carbon fibre composites at manufacturing time — a capability no incumbent currently offers.",
+      },
+      {
+        market: "Medical Diagnostics (Non-Invasive)",
+        tamEstimate: "$2.1B by 2029 (18% CAGR)",
+        rationale:
+          "Sub-millimetre sensing resolution enables non-invasive blood glucose monitoring — a $2.1B market with no FDA-cleared optical solution. University of Michigan preliminary clinical data is available in the IP package.",
+      },
+    ],
+    keyFindings: [
+      "Three independent application verticals — failure of one does not impair the others",
+      "GM pilot (industrial): 22% cycle-time improvement vs. incumbent laser systems",
+      "EU bridge inspection mandate (structural): €4B procurement cycle beginning 2027",
+      "University of Michigan clinical data included in the IP package (medical)",
+    ],
+  },
+  overallScore: 7.4,
+  recommendation: "conditional_proceed",
+  executiveSummary:
+    "NovaPhoLaser represents a compelling IP commercialization opportunity: a TRL 7 fiber-optic sensing technology with strong patent protection, a clear three-vertical commercialization roadmap, and three independently viable adjacent markets totalling $4.4B in TAM. The primary execution risk is building the commercial infrastructure from scratch, which is mitigated by the lead inventor's consulting commitment, an identified manufacturing partner, and three industrial OEM LOIs. At the asking price of $28M for full IP assignment, entry is supported by comparable photonics patent transactions and projected royalty income of $8–14M/year at scale.",
+};
+
 const DEMO_SCORING_RESULT: ScoringResult = scoreAnalysis(DEMO_ANALYSIS, {
+  weights: DEFAULT_WEIGHTS,
+});
+
+const DEMO_IP_SCORING_RESULT: ScoringResult = scoreAnalysis(DEMO_IP_ANALYSIS, {
   weights: DEFAULT_WEIGHTS,
 });
 
@@ -189,11 +370,15 @@ export default async function Page({
     );
   }
 
-  // Demo mode — used in development when Supabase is not configured
+  // Demo mode — used in development when Supabase is not configured.
+  // Use a special sentinel ID to preview the IP/Technology track demo.
+  const demoAnalysis = id === "demo-ip" ? DEMO_IP_ANALYSIS : DEMO_ANALYSIS;
+  const demoScoringResult =
+    id === "demo-ip" ? DEMO_IP_SCORING_RESULT : DEMO_SCORING_RESULT;
   return (
     <ScreeningResultsPage
-      analysis={DEMO_ANALYSIS}
-      scoringResult={DEMO_SCORING_RESULT}
+      analysis={demoAnalysis}
+      scoringResult={demoScoringResult}
       screeningId={id}
       rawDocumentText={null}
     />
