@@ -564,8 +564,8 @@ describe("PRD §3.6 — Null Dimension Score Weight Redistribution", () => {
   });
 
   it("partial null set: average of non-null dimensions drives the recommendation bucket", () => {
-    // 3 at 5 (would be FURTHER_REVIEW at avg 5), 2 null
-    // After redistribution: avg = 5.0 → PASS (5.0 < 5.5 threshold)
+    // 3 scored dimensions at 5, 2 null → avg of non-null = 5.0
+    // 5.0 is below the FURTHER_REVIEW lower bound (5.5), so recommendation = PASS
     const scores: ISTDimensionScore[] = [
       makeDimScore(5, "d1"),
       makeDimScore(5, "d2"),
