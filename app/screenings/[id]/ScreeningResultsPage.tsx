@@ -4,10 +4,12 @@ import {
   RadarChart,
   PolarGrid,
   PolarAngleAxis,
+  PolarRadiusAxis,
   Radar,
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
+import type { TooltipProps } from "recharts";
 import { useState } from "react";
 import type {
   ISTAnalysis,
@@ -304,14 +306,52 @@ function SectionCommentaryCard({
 // Radar Chart
 // ---------------------------------------------------------------------------
 
+interface RadarDataPoint {
+  subject: string;
+  value: number;
+  fullMark: number;
+  justification?: string;
+}
+
+const RECOMMENDATION_COLORS: Record<FinalRecommendation, string> = {
+  PROCEED: "#22C55E",
+  FURTHER_REVIEW: "#F59E0B",
+  PASS: "#EF4444",
+};
+
+function RadarTooltip({ active, payload }: TooltipProps<number, string>) {
+  if (!active || !payload?.length) return null;
+  const point = payload[0]?.payload as RadarDataPoint | undefined;
+  if (!point) return null;
+  const justification = point.justification;
+  return (
+    <div className="rounded-lg border border-slate-700 bg-slate-800 p-3 max-w-[260px]">
+      <p className="font-mono font-bold text-xs text-slate-100 mb-1">{point.subject}</p>
+      <p className={`font-mono text-xs text-slate-400 ${justification ? "mb-2" : "mb-0"}`}>
+        Score:{" "}
+        <span className="font-bold text-slate-100">{point.value} / 10</span>
+      </p>
+      {justification && (
+        <p className="font-mono text-[11px] leading-relaxed text-slate-400 m-0">
+          {justification}
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ScoreRadarChart({
   data,
+  recommendation,
 }: {
-  data: { subject: string; value: number; fullMark: number }[];
+  data: RadarDataPoint[];
+  recommendation: FinalRecommendation;
 }) {
+  const fillColor = RECOMMENDATION_COLORS[recommendation];
+
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <RadarChart data={data} margin={{ top: 10, right: 30, bottom: 10, left: 30 }}>
+    <ResponsiveContainer width="100%" height={320}>
+      <RadarChart data={data} margin={{ top: 20, right: 40, bottom: 20, left: 40 }}>
         <PolarGrid stroke="#334155" />
         <PolarAngleAxis
           dataKey="subject"
@@ -321,25 +361,21 @@ function ScoreRadarChart({
             fontFamily: "JetBrains Mono, monospace",
           }}
         />
+        <PolarRadiusAxis
+          domain={[0, 10]}
+          tickCount={6}
+          tick={{ fill: "#64748b", fontSize: 9, fontFamily: "JetBrains Mono, monospace" }}
+          axisLine={false}
+        />
         <Radar
           name="Score"
           dataKey="value"
-          stroke="#6366f1"
-          fill="#6366f1"
+          stroke={fillColor}
+          fill={fillColor}
           fillOpacity={0.25}
           strokeWidth={2}
         />
-        <Tooltip
-          contentStyle={{
-            backgroundColor: "#1e293b",
-            border: "1px solid #334155",
-            borderRadius: "8px",
-            color: "#e2e8f0",
-            fontFamily: "JetBrains Mono, monospace",
-            fontSize: "12px",
-          }}
-          formatter={(value) => [`${value} / 10`, "Score"]}
-        />
+        <Tooltip content={<RadarTooltip />} />
       </RadarChart>
     </ResponsiveContainer>
   );
@@ -655,6 +691,35 @@ function getRiskTableSections(
   ];
 }
 
+/**
+ * Builds the data array for the score radar chart.
+ * Includes dimension name, numeric score, and justification from section commentary.
+ */
+function buildRadarData(
+  analysis: ISTAnalysis,
+  isIPTech: boolean,
+  ipDimensionScores: Record<IPSnapshotKey, number | null> | null,
+  ipSectionMap: Record<IPSnapshotKey, ISTSection | undefined> | null,
+  dimensionScores: Record<ISTDimension, number>,
+): RadarDataPoint[] {
+  if (isIPTech && ipDimensionScores && ipSectionMap) {
+    return IP_SNAPSHOT_KEYS
+      .map((k) => ({
+        subject: IP_DIMENSION_LABELS[k],
+        value: ipDimensionScores[k] ?? 0,
+        fullMark: 10,
+        justification: ipSectionMap[k]?.commentary,
+      }))
+      .filter((d) => d.value > 0);
+  }
+  return DIMENSIONS.map((d) => ({
+    subject: DIMENSION_LABELS[d],
+    value: dimensionScores[d],
+    fullMark: 10,
+    justification: analysis[d]?.commentary,
+  }));
+}
+
 export interface ScreeningResultsPageProps {
   analysis: ISTAnalysis;
   scoringResult: ScoringResult;
@@ -686,19 +751,13 @@ export default function ScreeningResultsPage({
   const ipSectionMap = isIPTech ? getIPSectionMap(analysis) : null;
 
   // Radar data — varies by track
-  const radarData = isIPTech && ipDimensionScores
-    ? IP_SNAPSHOT_KEYS
-        .map((k) => ({
-          subject: IP_DIMENSION_LABELS[k].replace(" ", "\n"),
-          value: ipDimensionScores[k] ?? 0,
-          fullMark: 10,
-        }))
-        .filter((d) => d.value > 0)
-    : DIMENSIONS.map((d) => ({
-        subject: DIMENSION_LABELS[d].replace(" ", "\n"),
-        value: dimensionScores[d],
-        fullMark: 10,
-      }));
+  const radarData = buildRadarData(
+    analysis,
+    isIPTech,
+    ipDimensionScores,
+    ipSectionMap,
+    dimensionScores,
+  );
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -918,7 +977,7 @@ export default function ScreeningResultsPage({
               <h3 className="text-sm font-semibold text-slate-300 mb-2">
                 Score Radar
               </h3>
-              <ScoreRadarChart data={radarData} />
+              <ScoreRadarChart data={radarData} recommendation={recommendation} />
             </div>
 
             {/* Dimension Score Cards */}
