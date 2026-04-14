@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "validate:scoring": "vitest run scripts/validate-scoring.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
