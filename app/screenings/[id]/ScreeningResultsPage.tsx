@@ -351,8 +351,12 @@ function ScoreRadarChart({
 
 /**
  * Estimates TRL (1–9) from a 1–10 IST score when trlLevel is not explicitly
- * provided. The mapping linearly scales the 10-point score to the 9-point
- * NASA TRL scale: TRL = round(score / 10 × 9), clamped to [1, 9].
+ * provided by Claude. The mapping linearly scales the 10-point IST score to
+ * the 9-point NASA TRL scale: TRL = round(score / 10 × 9), clamped to [1, 9].
+ *
+ * This is an intentional fallback heuristic — a score of 5/10 ("Adequate")
+ * broadly corresponds to mid-scale maturity (TRL 5 — relevant environment
+ * validated). When an explicit trlLevel is present, it always takes precedence.
  */
 function estimateTRLFromScore(score: number): number {
   return Math.max(1, Math.min(9, Math.round((score / 10) * 9)));
@@ -610,6 +614,45 @@ function getIPSectionMap(
     managementTeam: analysis.managementTeam,
     strategicFit: analysis.companyOverview,
   };
+}
+
+/**
+ * Returns the ordered list of {@link ISTSection} rows for the Risk Assessment
+ * table. For IP deals the risk profile section leads, followed by other IP
+ * dimensions scored ≤ 6. For PE deals the legacy riskAssessment section leads,
+ * followed by other PE dimensions scored ≤ 6.
+ */
+function getRiskTableSections(
+  analysis: ISTAnalysis,
+  isIPTech: boolean,
+  ipSectionMap: Record<IPSnapshotKey, ISTSection | undefined> | null,
+  ipDimensionScores: Record<IPSnapshotKey, number | null> | null,
+  dimensionScores: Record<ISTDimension, number>,
+): ISTSection[] {
+  if (isIPTech && ipSectionMap && ipDimensionScores) {
+    return [
+      analysis.riskAssessment,
+      ...IP_SNAPSHOT_KEYS.filter(
+        (k) =>
+          k !== "riskProfile" &&
+          ipDimensionScores[k] != null &&
+          (ipDimensionScores[k] as number) <= 6,
+      )
+        .sort(
+          (a, b) => (ipDimensionScores[a] ?? 0) - (ipDimensionScores[b] ?? 0),
+        )
+        .map((k) => ipSectionMap[k])
+        .filter((s): s is ISTSection => s !== undefined),
+    ];
+  }
+  return [
+    analysis.riskAssessment,
+    ...DIMENSIONS.filter(
+      (d) => d !== "riskAssessment" && dimensionScores[d] <= 6,
+    )
+      .sort((a, b) => dimensionScores[a] - dimensionScores[b])
+      .map((d) => analysis[d]),
+  ];
 }
 
 export interface ScreeningResultsPageProps {
@@ -1038,37 +1081,12 @@ export default function ScreeningResultsPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {(isIPTech && ipSectionMap
-                    ? /* IP track — risk table built from IP dimensions ≤ 6 */
-                      (() => {
-                        return [
-                          // riskProfile always first
-                          analysis.riskAssessment,
-                          // other IP dims with score ≤ 6 and a resolved section, sorted by score
-                          ...IP_SNAPSHOT_KEYS.filter(
-                            (k) =>
-                              k !== "riskProfile" &&
-                              ipDimensionScores?.[k] != null &&
-                              (ipDimensionScores[k] as number) <= 6
-                          )
-                            .sort(
-                              (a, b) =>
-                                (ipDimensionScores?.[a] ?? 0) -
-                                (ipDimensionScores?.[b] ?? 0)
-                            )
-                            .map((k) => ipSectionMap[k])
-                            .filter((s): s is ISTSection => s !== undefined),
-                        ];
-                      })()
-                    : /* PE track — original logic */
-                      [
-                        analysis.riskAssessment,
-                        ...DIMENSIONS.filter(
-                          (d) => d !== "riskAssessment" && dimensionScores[d] <= 6
-                        )
-                          .sort((a, b) => dimensionScores[a] - dimensionScores[b])
-                          .map((d) => analysis[d]),
-                      ]
+                  {getRiskTableSections(
+                    analysis,
+                    isIPTech,
+                    ipSectionMap,
+                    ipDimensionScores,
+                    dimensionScores,
                   ).map((section, i) => (
                     <tr
                       key={i}
