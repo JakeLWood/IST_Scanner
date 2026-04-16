@@ -357,6 +357,51 @@ describe("upload-to-results happy path", () => {
     ).rejects.toThrow("analyze-deal failed (HTTP 422)");
   });
 
+  it("throws with rate-limit message when analyze-deal returns 429", async () => {
+    const resetAt = "2026-04-17T00:00:00.000Z";
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: `Daily screening limit of 50 reached. Limit resets at ${resetAt}.`,
+          resetAt,
+        }),
+        { status: 429 },
+      ),
+    );
+
+    await expect(
+      callEdgeFunction(
+        "analyze-deal",
+        { extractedText: RAW_TEXT, dealType: "traditional_pe" },
+        ACCESS_TOKEN,
+      ),
+    ).rejects.toThrow("analyze-deal failed (HTTP 429): Daily screening limit of 50 reached");
+  });
+
+  it("returns cached analysis with _cached flag when duplicate document is detected", async () => {
+    const cachedResponse = {
+      ...MOCK_ANALYSIS,
+      _cached: true,
+      _cacheNotice:
+        "This document was previously analyzed. Returning cached result to avoid a duplicate API call.",
+    };
+
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify(cachedResponse), { status: 200 }),
+    );
+
+    const result = await callEdgeFunction<typeof cachedResponse>(
+      "analyze-deal",
+      { extractedText: RAW_TEXT, dealType: "traditional_pe" },
+      ACCESS_TOKEN,
+    );
+
+    expect(result._cached).toBe(true);
+    expect(result._cacheNotice).toContain("previously analyzed");
+    expect(result.companyName).toBe(MOCK_ANALYSIS.companyName);
+    expect(result.overallScore).toBe(MOCK_ANALYSIS.overallScore);
+  });
+
   it("uses the plain-text deal description when no file is provided", async () => {
     const PASTE_TEXT =
       "TechCo Inc. patent portfolio — 42 granted patents, TRL 6 laser sensing technology.";

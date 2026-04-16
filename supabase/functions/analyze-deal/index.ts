@@ -499,6 +499,18 @@ function validateISTAnalysis(data: unknown): data is ISTAnalysis {
 }
 
 // ---------------------------------------------------------------------------
+// SHA-256 helper (Web Crypto API — available in Deno natively)
+// ---------------------------------------------------------------------------
+
+async function sha256Hex(text: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// ---------------------------------------------------------------------------
 // Cost estimation — claude-sonnet-4-5 pricing
 // Rates as of 2025-09: Input $3 / million tokens; Output $15 / million tokens.
 // These values are specific to the claude-sonnet-4-5-20250929 model.
@@ -609,7 +621,76 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ------------------------------------------------------------------
-    // 3. Call the Anthropic Claude API
+    // 3. Enforce daily rate limit (PRD §2.4: max 50 screenings per day)
+    // ------------------------------------------------------------------
+    const adminClient = createClient(supabaseUrl, supabaseServiceRoleKey);
+
+    // Count successful API calls (error_message IS NULL) for this user today (UTC).
+    const nowUtc = new Date();
+    const startOfTodayUtc = new Date(
+      Date.UTC(nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate()),
+    );
+
+    const DAILY_LIMIT = 50;
+    const { count: usageCount, error: usageError } = await adminClient
+      .from('api_usage_log')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .is('error_message', null)
+      .gte('created_at', startOfTodayUtc.toISOString());
+
+    if (!usageError && usageCount !== null && usageCount >= DAILY_LIMIT) {
+      const resetAt = new Date(startOfTodayUtc);
+      resetAt.setUTCDate(resetAt.getUTCDate() + 1);
+      return new Response(
+        JSON.stringify({
+          error: `Daily screening limit of ${DAILY_LIMIT} reached. Limit resets at ${resetAt.toISOString()}.`,
+          resetAt: resetAt.toISOString(),
+        }),
+        { status: 429, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+      );
+    }
+
+    // ------------------------------------------------------------------
+    // 4. Duplicate document detection (PRD §2.4: hash-based cache)
+    //    Hash the extracted text and check screening_documents.content_hash.
+    //    If a prior screening used the same document, return the cached
+    //    ai_response_json without calling the API again.
+    // ------------------------------------------------------------------
+    const contentHash = await sha256Hex(extractedText);
+
+    const { data: existingDocs } = await adminClient
+      .from('screening_documents')
+      .select('screening_id')
+      .eq('content_hash', contentHash)
+      .limit(1);
+
+    if (existingDocs && existingDocs.length > 0) {
+      const cachedScreeningId = existingDocs[0].screening_id as string;
+      const { data: cachedScreening } = await adminClient
+        .from('screenings')
+        .select('ai_response_json')
+        .eq('id', cachedScreeningId)
+        .single();
+
+      if (
+        cachedScreening?.ai_response_json &&
+        validateISTAnalysis(cachedScreening.ai_response_json)
+      ) {
+        return new Response(
+          JSON.stringify({
+            ...cachedScreening.ai_response_json,
+            _cached: true,
+            _cacheNotice:
+              'This document was previously analyzed. Returning cached result to avoid a duplicate API call.',
+          }),
+          { status: 200, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
+        );
+      }
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Call the Anthropic Claude API
     // ------------------------------------------------------------------
     const anthropicApiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!anthropicApiKey) {
@@ -688,7 +769,7 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ------------------------------------------------------------------
-    // 4. Extract and validate the response
+    // 6. Extract and validate the response
     // ------------------------------------------------------------------
     const anthropicData = await anthropicResponse.json();
 
@@ -778,7 +859,7 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ------------------------------------------------------------------
-    // 5. Log the successful API call to api_usage_log
+    // 7. Log the successful API call to api_usage_log
     // ------------------------------------------------------------------
     await logApiUsage({
       supabaseUrl,
@@ -794,7 +875,7 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     // ------------------------------------------------------------------
-    // 6. Return the parsed ISTAnalysis
+    // 8. Return the parsed ISTAnalysis
     // ------------------------------------------------------------------
     return new Response(JSON.stringify(parsedAnalysis), {
       status: 200,
@@ -834,14 +915,12 @@ async function logApiUsage(params: LogApiUsageParams): Promise<void> {
       user_id: params.userId,
       provider: 'anthropic',
       model: params.model,
-      endpoint: 'https://api.anthropic.com/v1/messages',
       input_tokens: params.inputTokens,
       output_tokens: params.outputTokens,
-      cost_usd: params.costUsd,
+      cost_estimate: params.costUsd,
       latency_ms: params.latencyMs,
       http_status: params.httpStatus,
       error_message: params.errorMessage,
-      request_meta: { max_tokens: 8192 },
     });
 
     if (error) {
