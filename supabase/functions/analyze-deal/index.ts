@@ -85,6 +85,16 @@ Guiding principles:
 - Set recommendation to "proceed" when overallScore ≥ 7.0 and no section scores 1–2; \
   "conditional_proceed" when overallScore is 5.0–6.9 or exactly one section scores 3–4; \
   "pass" when overallScore < 5.0 or any section scores 1–2.
+- CONTRADICTORY INFORMATION: If you detect contradictory or inconsistent information \
+  within the document (e.g., revenue stated as $10M in one section and $12M in another), \
+  flag it explicitly in the relevant section's commentary using the format: \
+  "CONTRADICTION DETECTED: [description with specific references to where each figure appears]."
+- HYBRID DEAL TYPE: If the deal exhibits characteristics of both a traditional PE company \
+  and an IP/technology asset (e.g., an operating company with significant patented \
+  technology or meaningful R&D revenue), note this hybrid nature explicitly in the \
+  executiveSummary. Within the investmentThesis and riskAssessment sections, include \
+  evaluation of IP-related dimensions (patent coverage, freedom-to-operate, technology \
+  risk) even though the primary classification is traditional_pe.
 
 Return ONLY the JSON object described in the analysis prompt. Do not include any \
 explanatory text, markdown fences, or commentary outside the JSON.
@@ -134,6 +144,13 @@ Guiding principles:
 - Set recommendation to "proceed" when overallScore ≥ 7.0 and no section scores 1–2; \
   "conditional_proceed" when overallScore is 5.0–6.9 or exactly one section scores 3–4; \
   "pass" when overallScore < 5.0 or any section scores 1–2.
+- CONTRADICTORY INFORMATION: If you detect contradictory or inconsistent information \
+  within the document (e.g., TRL stated as 6 in one section and 4 in another), \
+  flag it explicitly in the relevant section's commentary using the format: \
+  "CONTRADICTION DETECTED: [description with specific references to where each value appears]."
+- HYBRID DEAL TYPE: If the deal exhibits significant operating revenue alongside IP assets, \
+  note the hybrid nature explicitly in the executiveSummary and score both the IP/technology \
+  dimensions and the revenue-generating business dimensions thoroughly.
 
 Return ONLY the JSON object described in the analysis prompt. Do not include any \
 explanatory text, markdown fences, or commentary outside the JSON.
@@ -143,14 +160,91 @@ explanatory text, markdown fences, or commentary outside the JSON.
 // Analysis prompt builders
 // (mirrors buildTraditionalPEAnalysisPrompt / buildIPTechAnalysisPrompt)
 // ---------------------------------------------------------------------------
+// Document context flags passed to the prompt builder (PRD §9.3)
+// ---------------------------------------------------------------------------
+
+interface DocumentContextFlags {
+  /** Edge case 1: document is under 200 words (low confidence caveat). */
+  isShortDocument?: boolean;
+  wordCount?: number;
+  /** Edge case 2: document was truncated to fit the context window. */
+  wasTruncated?: boolean;
+  originalCharCount?: number;
+  /** Edge case 3: document appears to be non-English. */
+  isNonEnglish?: boolean;
+  nonLatinRatio?: number;
+  /** Edge case 6: document has significant redactions. */
+  hasSignificantRedactions?: boolean;
+  redactionCount?: number;
+  redactionDensity?: string;
+  /** Edge case 7: text was extracted via OCR. */
+  isOCRDerived?: boolean;
+}
+
+function buildContextPreamble(flags: DocumentContextFlags): string {
+  const notes: string[] = [];
+
+  if (flags.isShortDocument) {
+    notes.push(
+      `LOW-CONFIDENCE ANALYSIS: This document contains only ${flags.wordCount ?? 'very few'} words, ` +
+      `which is below the 200-word minimum recommended for a reliable IST analysis. ` +
+      `Extract all available data, flag insufficient data explicitly in each section's ` +
+      `commentary, and apply clear low-confidence caveats throughout the analysis. ` +
+      `Set scores conservatively (maximum 5 for any section) to reflect data limitations.`,
+    );
+  }
+
+  if (flags.wasTruncated) {
+    notes.push(
+      `TRUNCATED DOCUMENT: The document was too long to process in full ` +
+      `(original size: ${flags.originalCharCount ? Math.round(flags.originalCharCount / 1000) + 'K chars' : 'very large'}). ` +
+      `The middle section was omitted; analysis is based on the beginning and end of the document. ` +
+      `Note this limitation in the executiveSummary.`,
+    );
+  }
+
+  if (flags.isNonEnglish) {
+    notes.push(
+      `NON-ENGLISH DOCUMENT: The document appears to contain significant non-English text ` +
+      `(approximately ${flags.nonLatinRatio ? Math.round(flags.nonLatinRatio * 100) : '?'}% non-Latin characters). ` +
+      `English documents are preferred. Proceed with the analysis but apply a general low-confidence ` +
+      `caveat and note the language limitation in the executiveSummary.`,
+    );
+  }
+
+  if (flags.hasSignificantRedactions) {
+    notes.push(
+      `REDACTED DOCUMENT: The document contains ${flags.redactionCount ?? 'multiple'} redaction marker(s) ` +
+      `(density: ${flags.redactionDensity ?? 'significant'}). ` +
+      `Flag each dimension where redacted data impairs your analysis by noting ` +
+      `"REDACTION NOTE: [specific data that appears redacted]" in the relevant section's commentary. ` +
+      `Reduce scores proportionally in sections where key data is obscured.`,
+    );
+  }
+
+  if (flags.isOCRDerived) {
+    notes.push(
+      `OCR-PROCESSED DOCUMENT: This document was processed via optical character recognition (OCR) ` +
+      `and may contain text recognition errors, particularly in financial figures, tables, and ` +
+      `proper nouns. When citing specific numbers, note potential OCR inaccuracy where relevant ` +
+      `using "OCR NOTE: [concern]" in the commentary.`,
+    );
+  }
+
+  if (notes.length === 0) return '';
+  return `DOCUMENT PROCESSING NOTES — READ CAREFULLY BEFORE ANALYSIS:\n${notes.map((n, i) => `${i + 1}. ${n}`).join('\n\n')}\n\n`;
+}
 
 function buildAnalysisPrompt(
   extractedText: string,
   dealType: DealType,
   analysisDate: string,
+  contextFlags: DocumentContextFlags = {},
 ): string {
+  const preamble = buildContextPreamble(contextFlags);
+
   if (dealType === 'traditional_pe') {
-    return `\
+    return `${preamble}\
 Perform a complete Investment Screening Tool (IST) analysis on the following deal \
 materials and return a single JSON object that EXACTLY matches the ISTAnalysis \
 TypeScript interface shown below. Do not include anything outside the JSON object.
@@ -257,7 +351,7 @@ Return ONLY the JSON object. No markdown, no prose, no code fences.
   }
 
   // IP / Technology Commercialization track
-  return `\
+  return `${preamble}\
 Perform a complete Investment Screening Tool (IST) analysis on the following IP / \
 Technology Commercialization deal materials and return a single JSON object that EXACTLY \
 matches the ISTAnalysis TypeScript interface shown below. Do not include anything outside \
@@ -511,6 +605,88 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 // ---------------------------------------------------------------------------
+// Inline document preprocessor utilities (PRD §9.3)
+// These mirror lib/document-preprocessor.ts — kept inline so the Edge
+// Function is self-contained without a build step.
+// ---------------------------------------------------------------------------
+
+/** Approximate word count via whitespace splitting. */
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+const MIN_WORD_COUNT = 200;
+const MAX_DOCUMENT_CHARS = 120_000;
+
+/**
+ * Truncates a document to MAX_DOCUMENT_CHARS, preserving 70 % at the head
+ * (exec summary / financials) and 30 % at the tail (risk factors / terms).
+ */
+function truncateDocument(text: string): { truncated: string; wasTruncated: boolean; originalCharCount: number } {
+  const originalCharCount = text.length;
+  if (originalCharCount <= MAX_DOCUMENT_CHARS) {
+    return { truncated: text, wasTruncated: false, originalCharCount };
+  }
+  const headChars = Math.floor(MAX_DOCUMENT_CHARS * 0.7);
+  const tailChars = MAX_DOCUMENT_CHARS - headChars;
+  const head = text.slice(0, headChars);
+  const tail = text.slice(text.length - tailChars);
+  const notice =
+    `\n\n[... DOCUMENT TRUNCATED — original size: ${Math.round(originalCharCount / 1000)}K chars. ` +
+    `Middle section omitted. Analysis prioritizes executive summary and risk factors. ...]\n\n`;
+  return { truncated: head + notice + tail, wasTruncated: true, originalCharCount };
+}
+
+/**
+ * Detects potentially non-English documents by measuring the ratio of
+ * non-Latin-script Unicode letters in a 2,000-character sample.
+ */
+function detectNonLatinScript(text: string): { isNonLatin: boolean; nonLatinRatio: number } {
+  const sample = text.slice(0, 2_000);
+  const letters = [...sample].filter((ch) => /\p{L}/u.test(ch));
+  if (letters.length === 0) return { isNonLatin: false, nonLatinRatio: 0 };
+  const nonLatin = letters.filter((ch) => (ch.codePointAt(0) ?? 0) > 0x024f);
+  const nonLatinRatio = nonLatin.length / letters.length;
+  return { isNonLatin: nonLatinRatio >= 0.15, nonLatinRatio };
+}
+
+/** Patterns that indicate deliberate redactions. */
+const REDACTION_PATTERNS_INLINE = [
+  /\[REDACTED?\]/gi, /\[WITHHELD\]/gi, /\[REMOVED\]/gi, /\[CONFIDENTIAL\]/gi,
+  /█+/g, /\*{3,}/g, /_{5,}/g, /\[[\s*]{2,}\]/g,
+];
+
+/**
+ * Counts redaction markers and classifies density as none/low/moderate/high.
+ */
+function countRedactions(text: string): { count: number; density: 'none' | 'low' | 'moderate' | 'high' } {
+  let count = 0;
+  for (const pattern of REDACTION_PATTERNS_INLINE) {
+    const matches = text.match(pattern);
+    if (matches) count += matches.length;
+  }
+  const density =
+    count === 0 ? 'none' :
+    count < 5   ? 'low' :
+    count < 20  ? 'moderate' : 'high';
+  return { count, density };
+}
+
+// ---------------------------------------------------------------------------
+// Edge-case flags attached to every successful analysis response (PRD §9.3)
+// ---------------------------------------------------------------------------
+
+interface EdgeCaseFlags {
+  shortDocument?: { wordCount: number; warning: string };
+  documentTruncated?: { originalCharCount: number; truncatedCharCount: number; warning: string };
+  languageWarning?: { nonLatinRatio: number; warning: string };
+  significantRedactions?: { redactionCount: number; density: string; warning: string };
+  ocrUsed?: { warning: string };
+}
+
+// ---------------------------------------------------------------------------
 // Cost estimation — claude-sonnet-4-5 pricing
 // Rates as of 2025-09: Input $3 / million tokens; Output $15 / million tokens.
 // These values are specific to the claude-sonnet-4-5-20250929 model.
@@ -592,7 +768,7 @@ serve(async (req: Request): Promise<Response> => {
     // ------------------------------------------------------------------
     // 2. Parse and validate the request body
     // ------------------------------------------------------------------
-    let body: { extractedText: string; dealType: string };
+    let body: { extractedText: string; dealType: string; isOCRDerived?: boolean };
     try {
       body = await req.json();
     } catch {
@@ -602,7 +778,7 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const { extractedText, dealType } = body;
+    const { extractedText, dealType, isOCRDerived = false } = body;
 
     if (!isString(extractedText) || extractedText.trim().length === 0) {
       return new Response(
@@ -619,6 +795,85 @@ serve(async (req: Request): Promise<Response> => {
         { status: 400, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } },
       );
     }
+
+    // ------------------------------------------------------------------
+    // 3. PRD §9.3 edge-case pre-processing
+    //    Run all document checks BEFORE calling Claude.
+    // ------------------------------------------------------------------
+    const edgeCaseFlags: EdgeCaseFlags = {};
+
+    // Edge case 1: very short document
+    const wordCount = countWords(extractedText);
+    if (wordCount < MIN_WORD_COUNT) {
+      edgeCaseFlags.shortDocument = {
+        wordCount,
+        warning:
+          `Document contains only ${wordCount} word${wordCount === 1 ? '' : 's'} ` +
+          `(minimum recommended: ${MIN_WORD_COUNT}). Analysis is limited and low-confidence.`,
+      };
+    }
+
+    // Edge case 3: non-English document
+    const { isNonLatin, nonLatinRatio } = detectNonLatinScript(extractedText);
+    if (isNonLatin) {
+      edgeCaseFlags.languageWarning = {
+        nonLatinRatio,
+        warning:
+          `Document appears to contain significant non-English text ` +
+          `(${Math.round(nonLatinRatio * 100)}% non-Latin characters). ` +
+          'English documents are recommended. Analysis is proceeding with reduced confidence.',
+      };
+    }
+
+    // Edge case 6: highly redacted document
+    const { count: redactionCount, density: redactionDensity } = countRedactions(extractedText);
+    if (redactionDensity === 'moderate' || redactionDensity === 'high') {
+      edgeCaseFlags.significantRedactions = {
+        redactionCount,
+        density: redactionDensity,
+        warning:
+          `Document contains ${redactionCount} redaction marker(s) (${redactionDensity} density). ` +
+          'Confidence in affected scoring dimensions is reduced.',
+      };
+    }
+
+    // Edge case 7: OCR-derived text
+    if (isOCRDerived === true) {
+      edgeCaseFlags.ocrUsed = {
+        warning:
+          'Text was extracted via OCR and may contain recognition errors, ' +
+          'especially in financial figures, tables, and proper nouns. ' +
+          'Treat specific numbers with additional caution.',
+      };
+    }
+
+    // Edge case 2: very long document — truncate before sending to Claude
+    const { truncated: processedText, wasTruncated, originalCharCount } =
+      truncateDocument(extractedText);
+    if (wasTruncated) {
+      edgeCaseFlags.documentTruncated = {
+        originalCharCount,
+        truncatedCharCount: processedText.length,
+        warning:
+          `Document was truncated from ${Math.round(originalCharCount / 1000)}K to ` +
+          `${Math.round(processedText.length / 1000)}K characters. ` +
+          'Analysis prioritizes the executive summary and risk factors.',
+      };
+    }
+
+    // Build context flags object to pass into the prompt preamble
+    const contextFlags: DocumentContextFlags = {
+      isShortDocument: !!edgeCaseFlags.shortDocument,
+      wordCount: edgeCaseFlags.shortDocument?.wordCount,
+      wasTruncated,
+      originalCharCount: wasTruncated ? originalCharCount : undefined,
+      isNonEnglish: !!edgeCaseFlags.languageWarning,
+      nonLatinRatio: edgeCaseFlags.languageWarning?.nonLatinRatio,
+      hasSignificantRedactions: !!edgeCaseFlags.significantRedactions,
+      redactionCount: edgeCaseFlags.significantRedactions?.redactionCount,
+      redactionDensity: edgeCaseFlags.significantRedactions?.density,
+      isOCRDerived: !!edgeCaseFlags.ocrUsed,
+    };
 
     // ------------------------------------------------------------------
     // 3. Enforce daily rate limit (PRD §2.4: max 50 screenings per day)
@@ -705,10 +960,12 @@ serve(async (req: Request): Promise<Response> => {
     const analysisDate = new Date().toISOString().slice(0, 10);
     const systemPrompt =
       dealType === 'traditional_pe' ? TRADITIONAL_PE_SYSTEM_PROMPT : IP_TECH_SYSTEM_PROMPT;
+    // Use processedText (possibly truncated) and inject context flags into the prompt preamble
     const analysisPrompt = buildAnalysisPrompt(
-      extractedText,
+      processedText,
       dealType as DealType,
       analysisDate,
+      contextFlags,
     );
 
     const requestStartMs = Date.now();
@@ -875,9 +1132,14 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     // ------------------------------------------------------------------
-    // 8. Return the parsed ISTAnalysis
+    // 8. Return the parsed ISTAnalysis, appending any edge-case flags
     // ------------------------------------------------------------------
-    return new Response(JSON.stringify(parsedAnalysis), {
+    const hasFlags = Object.keys(edgeCaseFlags).length > 0;
+    const responseBody = hasFlags
+      ? { ...parsedAnalysis, _flags: edgeCaseFlags }
+      : parsedAnalysis;
+
+    return new Response(JSON.stringify(responseBody), {
       status: 200,
       headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });

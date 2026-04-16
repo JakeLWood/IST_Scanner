@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Component, useCallback, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { extractTextFromFile } from "@/lib/extractTextFromFile";
+import { extractTextWithMetadata } from "@/lib/extractTextFromFile";
 import { saveScreening } from "@/lib/actions/saveScreening";
 import { useAuthContext } from "@/app/providers/auth-provider";
 import { callEdgeFunction } from "@/lib/api/edgeFunctions";
@@ -86,6 +86,8 @@ export default function UploadPage() {
 
   // Persist extracted text between the classify and analyse phases
   const extractedTextRef = useRef<string>("");
+  // Track whether OCR was used during extraction (forwarded to edge function)
+  const isOCRDerivedRef = useRef<boolean>(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -175,9 +177,11 @@ export default function UploadPage() {
       setProcessingStep("extracting");
       let rawText: string;
       if (file) {
-        rawText = await extractTextFromFile(file);
-        rawText = [rawText, dealText.trim()].filter(Boolean).join("\n\n");
+        const extraction = await extractTextWithMetadata(file);
+        isOCRDerivedRef.current = extraction.usedOCR;
+        rawText = [extraction.text, dealText.trim()].filter(Boolean).join("\n\n");
       } else {
+        isOCRDerivedRef.current = false;
         rawText = dealText.trim();
       }
       extractedTextRef.current = rawText;
@@ -212,7 +216,11 @@ export default function UploadPage() {
       setProcessingStep("analyzing");
       const analysis = await callEdgeFunction<ISTAnalysis>(
         "analyze-deal",
-        { extractedText: extractedTextRef.current, dealType: confirmedDealType },
+        {
+          extractedText: extractedTextRef.current,
+          dealType: confirmedDealType,
+          isOCRDerived: isOCRDerivedRef.current,
+        },
         session.access_token,
       );
 

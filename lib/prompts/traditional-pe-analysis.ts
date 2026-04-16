@@ -50,6 +50,16 @@ Guiding principles:
 - Set recommendation to "proceed" when overallScore ≥ 7.0 and no section scores 1–2; \
   "conditional_proceed" when overallScore is 5.0–6.9 or exactly one section scores 3–4; \
   "pass" when overallScore < 5.0 or any section scores 1–2.
+- CONTRADICTORY INFORMATION: If you detect contradictory or inconsistent information \
+  within the document (e.g., revenue stated differently in different sections), flag it \
+  explicitly in the relevant section's commentary using the format: \
+  "CONTRADICTION DETECTED: [description with specific references to where each figure appears]."
+- HYBRID DEAL TYPE: If the deal exhibits characteristics of both a traditional PE company \
+  and an IP/technology asset (e.g., an operating company with significant patented \
+  technology or meaningful R&D revenue), note this hybrid nature explicitly in the \
+  executiveSummary. Within the investmentThesis and riskAssessment sections, include \
+  evaluation of IP-related dimensions (patent coverage, freedom-to-operate, technology \
+  risk) even though the primary classification is traditional_pe.
 
 Return ONLY the JSON object described in the analysis prompt. Do not include any \
 explanatory text, markdown fences, or commentary outside the JSON.
