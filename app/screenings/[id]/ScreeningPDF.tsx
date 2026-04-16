@@ -11,6 +11,12 @@
  *   6. Value Creation / Investment Thesis (PE) or Commercialization Pathway (IP)
  *   7. IP-specific: IP Strength & Defensibility, Orthogonal Applications (IP track)
  *   8. Key Management Questions — from dealDynamics (PE) or IP sections
+ *
+ * Font note (PRD §6.1): The web UI uses JetBrains Mono for monospaced numbers.
+ * PDF generation uses the built-in Courier/Courier-Bold fonts instead to avoid a
+ * network dependency on a remote font file during client-side PDF rendering.
+ * If JetBrains Mono files are ever added to /public, Font.register() can be used
+ * here to keep the PDF consistent with the on-screen design.
  */
 
 import {
