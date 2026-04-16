@@ -148,7 +148,7 @@ function VersionHistoryPanel({
               {/* Author */}
               <td className="px-4 py-3 text-slate-400">
                 {row.creator_name ?? (
-                  <span className="italic text-slate-600">System</span>
+                  <span className="text-slate-600 italic">System</span>
                 )}
               </td>
 
