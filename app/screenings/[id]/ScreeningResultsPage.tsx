@@ -754,7 +754,7 @@ export default function ScreeningResultsPage({
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `${analysis.companyName.replace(/\s+/g, "_")}_IST_Report.pdf`;
+      a.download = `${analysis.companyName.replace(/[^a-zA-Z0-9\-_]/g, "_")}_IST_Report.pdf`;
       a.click();
       URL.revokeObjectURL(url);
     } finally {
