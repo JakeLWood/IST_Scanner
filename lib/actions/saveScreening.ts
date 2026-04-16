@@ -87,11 +87,15 @@ export async function saveScreening(
   // ------------------------------------------------------------------
   const contentHash = createHash("sha256").update(rawText, "utf8").digest("hex");
 
+  // Sanitize company name for use as a filename: replace any character that is
+  // not alphanumeric, hyphen, underscore, or space with an underscore.
+  const safeFileName = companyName.replace(/[^a-zA-Z0-9 _-]/g, "_");
+
   const { error: docError } = await supabase
     .from("screening_documents")
     .insert({
       screening_id: data.id,
-      file_name: `${companyName}.txt`,
+      file_name: `${safeFileName}.txt`,
       file_type: "extracted_text",
       storage_path: `text/extracted/${data.id}`,
       extracted_text: rawText,
