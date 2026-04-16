@@ -10,7 +10,7 @@ import {
   Tooltip,
 } from "recharts";
 import type { TooltipProps } from "recharts";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type {
   ISTAnalysis,
   ISTSection,
@@ -734,6 +734,33 @@ export default function ScreeningResultsPage({
   rawDocumentText,
 }: ScreeningResultsPageProps) {
   const [rawExpanded, setRawExpanded] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
+
+  const handleExportPDF = useCallback(async () => {
+    setPdfLoading(true);
+    try {
+      // Dynamically import to avoid SSR issues and keep the initial bundle lean.
+      const [{ pdf }, { default: ScreeningPDF }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("./ScreeningPDF"),
+      ]);
+      const blob = await pdf(
+        <ScreeningPDF
+          analysis={analysis}
+          scoringResult={scoringResult}
+          screeningId={screeningId}
+        />,
+      ).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${analysis.companyName.replace(/\s+/g, "_")}_IST_Report.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setPdfLoading(false);
+    }
+  }, [analysis, scoringResult, screeningId]);
 
   const { compositeScore, recommendation, isDisqualified, disqualifierReason, dimensionScores } =
     scoringResult;
@@ -808,24 +835,52 @@ export default function ScreeningResultsPage({
             {/* Right: Action buttons */}
             <div className="flex items-center gap-2 shrink-0">
               <button
-                className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-                onClick={() => window.print()}
+                className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleExportPDF}
+                disabled={pdfLoading}
                 title="Export PDF"
               >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                Export PDF
+                {pdfLoading ? (
+                  <>
+                    <svg
+                      className="w-3.5 h-3.5 animate-spin"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"
+                      />
+                    </svg>
+                    Generating…
+                  </>
+                ) : (
+                  <>
+                    <svg
+                      className="w-3.5 h-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    Export PDF
+                  </>
+                )}
               </button>
               <button
                 className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"

@@ -12,6 +12,7 @@
     "validate:scoring": "vitest run scripts/validate-scoring.ts"
   },
   "dependencies": {
+    "@react-pdf/renderer": "^4.5.1",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.0",
     "mammoth": "^1.11.0",
