@@ -11,6 +11,8 @@ import {
 } from "recharts";
 import type { TooltipProps } from "recharts";
 import { useState, useCallback } from "react";
+import Link from "next/link";
+import { addToDealFlow } from "@/lib/actions/addToDealFlow";
 import type {
   ISTAnalysis,
   ISTSection,
@@ -725,6 +727,8 @@ export interface ScreeningResultsPageProps {
   scoringResult: ScoringResult;
   screeningId: string;
   rawDocumentText?: string | null;
+  dealSource?: string | null;
+  userId?: string | null;
 }
 
 export default function ScreeningResultsPage({
@@ -732,9 +736,16 @@ export default function ScreeningResultsPage({
   scoringResult,
   screeningId,
   rawDocumentText,
+  dealSource,
+  userId,
 }: ScreeningResultsPageProps) {
   const [rawExpanded, setRawExpanded] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [dealFlowState, setDealFlowState] = useState<
+    "idle" | "loading" | "success" | "error"
+  >("idle");
+  const [dealFlowId, setDealFlowId] = useState<string | null>(null);
+  const [dealFlowError, setDealFlowError] = useState<string | null>(null);
 
   const handleExportPDF = useCallback(async () => {
     setPdfLoading(true);
@@ -761,6 +772,36 @@ export default function ScreeningResultsPage({
       setPdfLoading(false);
     }
   }, [analysis, scoringResult, screeningId]);
+
+  const handleAddToDealFlow = useCallback(async () => {
+    if (!userId) {
+      setDealFlowError("You must be signed in to add a deal to DealFlow.");
+      setDealFlowState("error");
+      return;
+    }
+    setDealFlowState("loading");
+    setDealFlowError(null);
+    try {
+      const id = await addToDealFlow({
+        companyName: analysis.companyName,
+        dealSource: dealSource ?? null,
+        dealType:
+          analysis.dealType === "traditional_pe" ||
+          analysis.dealType === "ip_technology"
+            ? analysis.dealType
+            : null,
+        istScreeningId: screeningId,
+        userId,
+      });
+      setDealFlowId(id);
+      setDealFlowState("success");
+    } catch (err) {
+      setDealFlowError(
+        err instanceof Error ? err.message : "Failed to add to DealFlow.",
+      );
+      setDealFlowState("error");
+    }
+  }, [analysis.companyName, analysis.dealType, dealSource, screeningId, userId]);
 
   const { compositeScore, recommendation, isDisqualified, disqualifierReason, dimensionScores } =
     scoringResult;
@@ -902,25 +943,79 @@ export default function ScreeningResultsPage({
                 </svg>
                 Share
               </button>
-              <button
-                className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
-                title="Add to DealFlow"
-              >
-                <svg
-                  className="w-3.5 h-3.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                  strokeWidth={2}
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                Add to DealFlow
-              </button>
+              {recommendation === "PROCEED" && (
+                dealFlowState === "success" && dealFlowId ? (
+                  <Link
+                    href={`/deals/${dealFlowId}`}
+                    className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                    title="View in DealFlow"
+                  >
+                    <svg
+                      className="w-3.5 h-3.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                      strokeWidth={2}
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        d="M5 13l4 4L19 7"
+                      />
+                    </svg>
+                    View in DealFlow
+                  </Link>
+                ) : (
+                  <button
+                    className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleAddToDealFlow}
+                    disabled={dealFlowState === "loading"}
+                    title="Add to DealFlow"
+                  >
+                    {dealFlowState === "loading" ? (
+                      <>
+                        <svg
+                          className="w-3.5 h-3.5 animate-spin"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          />
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"
+                          />
+                        </svg>
+                        Adding…
+                      </>
+                    ) : (
+                      <>
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            d="M12 4v16m8-8H4"
+                          />
+                        </svg>
+                        Add to DealFlow
+                      </>
+                    )}
+                  </button>
+                )
+              )}
               <button
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
                 title="Edit"
@@ -955,6 +1050,14 @@ export default function ScreeningResultsPage({
           <div className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-red-300 text-sm">
             <span className="font-semibold">⚠ Disqualifier: </span>
             {disqualifierReason}
+          </div>
+        )}
+
+        {/* DealFlow error alert */}
+        {dealFlowState === "error" && dealFlowError && (
+          <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-amber-300 text-sm">
+            <span className="font-semibold">⚠ DealFlow: </span>
+            {dealFlowError}
           </div>
         )}
 

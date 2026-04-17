@@ -301,6 +301,7 @@ type ScreeningRow = {
   scores_json: ScoringResult | null;
   raw_document_text: string | null;
   is_disqualified: boolean;
+  deal_source: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -312,6 +313,8 @@ async function loadScreening(id: string): Promise<{
   analysis: ISTAnalysis;
   scoringResult: ScoringResult;
   rawDocumentText: string | null;
+  dealSource: string | null;
+  userId: string | null;
 } | null> {
   const hasSupabase =
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -321,10 +324,17 @@ async function loadScreening(id: string): Promise<{
 
   try {
     const supabase = await createClient();
+
+    // Resolve the current user so we can pass their ID to the client component
+    // for use when adding a deal to DealFlow.
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     const { data, error } = await supabase
       .from("screenings")
       .select(
-        "id, company_name, composite_score, recommendation, ai_response_json, scores_json, raw_document_text, is_disqualified"
+        "id, company_name, composite_score, recommendation, ai_response_json, scores_json, raw_document_text, is_disqualified, deal_source"
       )
       .eq("id", id)
       .single<ScreeningRow>();
@@ -345,7 +355,13 @@ async function loadScreening(id: string): Promise<{
       scoringResult = scoreAnalysis(analysis, { weights: DEFAULT_WEIGHTS });
     }
 
-    return { analysis, scoringResult, rawDocumentText: data.raw_document_text };
+    return {
+      analysis,
+      scoringResult,
+      rawDocumentText: data.raw_document_text,
+      dealSource: data.deal_source,
+      userId: user?.id ?? null,
+    };
   } catch {
     return null;
   }
@@ -366,6 +382,8 @@ export default async function Page({
         scoringResult={live.scoringResult}
         screeningId={id}
         rawDocumentText={live.rawDocumentText}
+        dealSource={live.dealSource}
+        userId={live.userId}
       />
     );
   }
