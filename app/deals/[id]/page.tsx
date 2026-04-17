@@ -42,6 +42,10 @@ function formatDate(iso: string): string {
   });
 }
 
+function capitalizeStatus(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
@@ -90,7 +94,7 @@ export default async function DealPage({
     { label: "Location", value: deal.location },
     { label: "Deal Source", value: deal.deal_source },
     { label: "Deal Type", value: dealTypeLabel(deal.deal_type) },
-    { label: "Status", value: deal.status.charAt(0).toUpperCase() + deal.status.slice(1) },
+    { label: "Status", value: capitalizeStatus(deal.status) },
     { label: "Added", value: formatDate(deal.created_at) },
   ];
 
@@ -135,7 +139,7 @@ export default async function DealPage({
                         : "bg-slate-500/20 text-slate-400 border border-slate-500/40"
                     }`}
                   >
-                    {deal.status.charAt(0).toUpperCase() + deal.status.slice(1)}
+                    {capitalizeStatus(deal.status)}
                   </span>
                 </div>
               </div>

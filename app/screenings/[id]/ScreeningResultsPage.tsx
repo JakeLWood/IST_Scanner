@@ -722,6 +722,22 @@ function buildRadarData(
   }));
 }
 
+/** Deal types supported by the `deals` table `deal_type` enum. */
+const DEAL_TABLE_TYPES = new Set(["traditional_pe", "ip_technology"]);
+
+/**
+ * Narrows an ISTAnalysis dealType to the subset that the `deals` table
+ * accepts. Returns null for tracks (e.g. growth_equity, venture) that don't
+ * yet have a corresponding enum value in the deals table.
+ */
+function toDealTableType(
+  dealType: string,
+): "traditional_pe" | "ip_technology" | null {
+  return DEAL_TABLE_TYPES.has(dealType)
+    ? (dealType as "traditional_pe" | "ip_technology")
+    : null;
+}
+
 export interface ScreeningResultsPageProps {
   analysis: ISTAnalysis;
   scoringResult: ScoringResult;
@@ -785,11 +801,7 @@ export default function ScreeningResultsPage({
       const id = await addToDealFlow({
         companyName: analysis.companyName,
         dealSource: dealSource ?? null,
-        dealType:
-          analysis.dealType === "traditional_pe" ||
-          analysis.dealType === "ip_technology"
-            ? analysis.dealType
-            : null,
+        dealType: toDealTableType(analysis.dealType),
         istScreeningId: screeningId,
         userId,
       });
