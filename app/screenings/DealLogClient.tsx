@@ -7,6 +7,7 @@
 
 import { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { fetchScreeningsForExport } from "@/lib/actions/fetchScreeningsForExport";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -214,6 +215,12 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
   const [sortKey, setSortKey] = useState<SortKey>("dateScreened");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
+  // ── row selection ──
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  // ── export state ──
+  const [exportLoading, setExportLoading] = useState<"excel" | "pdf" | null>(null);
+
   const handleSort = useCallback(
     (col: SortKey) => {
       if (sortKey === col) {
@@ -243,6 +250,78 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
       return next;
     });
   }, []);
+
+  // ── row selection helpers ──
+  const toggleRow = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  // ── export helpers ──
+
+  const handleExportExcel = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    setExportLoading("excel");
+    try {
+      const ids = Array.from(selectedIds);
+      const records = await fetchScreeningsForExport(ids);
+      const exportRows = records.map((rec) => {
+        const summaryRow = rows.find((r) => r.id === rec.id);
+        return {
+          ...rec,
+          dateScreened: summaryRow?.dateScreened,
+          sector: summaryRow?.sector,
+          screenedBy: summaryRow?.screenedBy,
+        };
+      });
+      const { downloadBulkExcel } = await import("@/lib/export/excelExport");
+      await downloadBulkExcel(exportRows);
+    } catch (err) {
+      console.error("Excel export failed:", err);
+      alert("Excel export failed. Please try again.");
+    } finally {
+      setExportLoading(null);
+    }
+  }, [selectedIds, rows]);
+
+  const handleExportPDF = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    setExportLoading("pdf");
+    try {
+      const ids = Array.from(selectedIds);
+      const records = await fetchScreeningsForExport(ids);
+      const [{ pdf }, { default: BulkScreeningPDF }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("./BulkScreeningPDF"),
+      ]);
+      const items = records.map((rec) => {
+        const summaryRow = rows.find((r) => r.id === rec.id);
+        return {
+          id: rec.id,
+          analysis: rec.analysis,
+          scoringResult: rec.scoringResult,
+          dateScreened: summaryRow?.dateScreened,
+        };
+      });
+      const blob = await pdf(<BulkScreeningPDF items={items} />).toBlob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const ts = new Date().toISOString().slice(0, 10);
+      a.download = `IST_Bulk_Export_${ts}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      alert("PDF export failed. Please try again.");
+    } finally {
+      setExportLoading(null);
+    }
+  }, [selectedIds, rows]);
 
   // ── derived filtered + sorted list ──
   const displayed = useMemo(() => {
@@ -319,6 +398,24 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
     scoreMin > 1 ||
     scoreMax < 10;
 
+  // These depend on `displayed` so must come after the `displayed` useMemo.
+  const isAllDisplayedSelected = useMemo(
+    () => displayed.length > 0 && displayed.every((r) => selectedIds.has(r.id)),
+    [displayed, selectedIds]
+  );
+
+  const toggleAllDisplayed = useCallback(() => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (isAllDisplayedSelected) {
+        displayed.forEach((r) => next.delete(r.id));
+      } else {
+        displayed.forEach((r) => next.add(r.id));
+      }
+      return next;
+    });
+  }, [displayed, isAllDisplayedSelected]);
+
   function clearFilters() {
     setSearch("");
     setRecFilter(new Set());
@@ -341,12 +438,60 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
               {rows.length} screening{rows.length !== 1 ? "s" : ""} total
             </p>
           </div>
-          <a
-            href="/upload"
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
-          >
-            + Screen a Deal
-          </a>
+          <div className="flex items-center gap-3">
+            {/* Export Selected — only appears when rows are checked */}
+            {selectedIds.size > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400">
+                  {selectedIds.size} selected
+                </span>
+                <button
+                  type="button"
+                  onClick={handleExportExcel}
+                  disabled={exportLoading !== null}
+                  className="flex items-center gap-1.5 rounded-lg border border-emerald-600/50 bg-emerald-600/20 px-3 py-2 text-sm font-medium text-emerald-300 transition-colors hover:bg-emerald-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Export selected screenings to Excel"
+                >
+                  {exportLoading === "excel" ? (
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                  )}
+                  Export Excel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportPDF}
+                  disabled={exportLoading !== null}
+                  className="flex items-center gap-1.5 rounded-lg border border-indigo-600/50 bg-indigo-600/20 px-3 py-2 text-sm font-medium text-indigo-300 transition-colors hover:bg-indigo-600/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                  title="Export selected screenings to PDF"
+                >
+                  {exportLoading === "pdf" ? (
+                    <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                  ) : (
+                    <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                    </svg>
+                  )}
+                  Export PDF
+                </button>
+              </div>
+            )}
+            <a
+              href="/upload"
+              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+            >
+              + Screen a Deal
+            </a>
+          </div>
         </div>
 
         {/* ── Filter panel ── */}
@@ -524,6 +669,16 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
           <table className="min-w-full divide-y divide-slate-800 text-sm">
             <thead className="bg-slate-900">
               <tr>
+                {/* Select-all checkbox */}
+                <th scope="col" className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all visible rows"
+                    checked={isAllDisplayedSelected}
+                    onChange={toggleAllDisplayed}
+                    className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-indigo-500 accent-indigo-500 cursor-pointer"
+                  />
+                </th>
                 {(
                   [
                     { col: "companyName", label: "Company Name" },
@@ -556,94 +711,122 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
               {displayed.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="px-4 py-12 text-center text-slate-500"
                   >
                     No screenings match your filters.
                   </td>
                 </tr>
               ) : (
-                displayed.map((row) => (
-                  <tr
-                    key={row.id}
-                    onClick={() => router.push(`/screenings/${row.id}`)}
-                    className="cursor-pointer transition-colors hover:bg-slate-800/60 focus-within:bg-slate-800/60"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
-                        e.preventDefault();
-                        router.push(`/screenings/${row.id}`);
-                      }
-                    }}
-                  >
-                    {/* Company Name */}
-                    <td className="px-4 py-3 font-medium text-slate-100 whitespace-nowrap">
-                      {row.companyName}
-                    </td>
+                displayed.map((row) => {
+                  const isSelected = selectedIds.has(row.id);
+                  return (
+                    <tr
+                      key={row.id}
+                      onClick={() => router.push(`/screenings/${row.id}`)}
+                      className={`cursor-pointer transition-colors hover:bg-slate-800/60 focus-within:bg-slate-800/60 ${isSelected ? "bg-indigo-900/20" : ""}`}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          router.push(`/screenings/${row.id}`);
+                        }
+                      }}
+                    >
+                      {/* Selection checkbox — stops row navigation when clicked */}
+                      <td
+                        className="px-4 py-3 w-10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleRow(row.id);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === " ") {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            toggleRow(row.id);
+                          }
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${row.companyName}`}
+                          checked={isSelected}
+                          onChange={() => toggleRow(row.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="h-4 w-4 rounded border-slate-600 bg-slate-800 text-indigo-500 accent-indigo-500 cursor-pointer"
+                        />
+                      </td>
 
-                    {/* Date Screened */}
-                    <td className="px-4 py-3 font-mono text-slate-400 whitespace-nowrap">
-                      {formatDate(row.dateScreened)}
-                    </td>
+                      {/* Company Name */}
+                      <td className="px-4 py-3 font-medium text-slate-100 whitespace-nowrap">
+                        {row.companyName}
+                      </td>
 
-                    {/* Deal Type */}
-                    <td className="px-4 py-3 text-slate-300 whitespace-nowrap">
-                      {dealTypeLabel(row.dealType)}
-                    </td>
+                      {/* Date Screened */}
+                      <td className="px-4 py-3 font-mono text-slate-400 whitespace-nowrap">
+                        {formatDate(row.dateScreened)}
+                      </td>
 
-                    {/* Composite Score */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.compositeScore !== null ? (
-                        <span
-                          className={`font-mono text-base font-semibold ${scoreColor(row.compositeScore)}`}
-                        >
-                          {row.compositeScore.toFixed(1)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
+                      {/* Deal Type */}
+                      <td className="px-4 py-3 text-slate-300 whitespace-nowrap">
+                        {dealTypeLabel(row.dealType)}
+                      </td>
 
-                    {/* Recommendation */}
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      {row.recommendation ? (
-                        (() => {
-                          const { label, classes } = verdictBadge(
-                            row.recommendation
-                          );
-                          return (
-                            <span
-                              className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${classes}`}
-                            >
-                              {label}
-                            </span>
-                          );
-                        })()
-                      ) : (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
+                      {/* Composite Score */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.compositeScore !== null ? (
+                          <span
+                            className={`font-mono text-base font-semibold ${scoreColor(row.compositeScore)}`}
+                          >
+                            {row.compositeScore.toFixed(1)}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
 
-                    {/* Sector */}
-                    <td className="px-4 py-3 text-slate-300">
-                      {row.sector ?? <span className="text-slate-600">—</span>}
-                    </td>
+                      {/* Recommendation */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.recommendation ? (
+                          (() => {
+                            const { label, classes } = verdictBadge(
+                              row.recommendation
+                            );
+                            return (
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${classes}`}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })()
+                        ) : (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
 
-                    {/* Deal Source */}
-                    <td className="px-4 py-3 text-slate-400">
-                      {row.dealSource ?? (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
+                      {/* Sector */}
+                      <td className="px-4 py-3 text-slate-300">
+                        {row.sector ?? <span className="text-slate-600">—</span>}
+                      </td>
 
-                    {/* Screened By */}
-                    <td className="px-4 py-3 text-slate-400">
-                      {row.screenedBy ?? (
-                        <span className="text-slate-600">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))
+                      {/* Deal Source */}
+                      <td className="px-4 py-3 text-slate-400">
+                        {row.dealSource ?? (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+
+                      {/* Screened By */}
+                      <td className="px-4 py-3 text-slate-400">
+                        {row.screenedBy ?? (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
