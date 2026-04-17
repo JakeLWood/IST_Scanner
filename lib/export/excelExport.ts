@@ -1,5 +1,5 @@
 /**
- * excelExport — Client-side Excel generation using SheetJS (xlsx).
+ * excelExport — Client-side Excel generation using ExcelJS.
  *
  * Produces a workbook with:
  *   • Sheet 1 "Summary"   — one row per selected screening with all snapshot
@@ -30,7 +30,6 @@ export interface ExportRow {
   analysis: ISTAnalysis;
   scoringResult: ScoringResult;
   dealSource: string | null;
-  /** Summary metadata (may be absent for demo rows) */
   dateScreened?: string;
   sector?: string | null;
   screenedBy?: string | null;
@@ -44,201 +43,275 @@ function toSheetName(name: string, index: number): string {
   return `${prefix}${safe.length > maxLen ? safe.slice(0, maxLen) : safe}`;
 }
 
+function formatDate(iso?: string): string {
+  if (!iso) return "";
+  try {
+    return new Date(iso).toLocaleDateString("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  } catch {
+    return iso;
+  }
+}
+
+/** Score-based fill colour for summary cells (ARGB hex). */
+function scoreFill(score: number | null): string {
+  if (score === null) return "FFFFFFFF";
+  if (score >= 7) return "FFD1FAE5"; // emerald-100
+  if (score >= 5) return "FFFEF3C7"; // amber-100
+  return "FFFEE2E2"; // red-100
+}
+
+/** Recommendation fill colour (ARGB hex). */
+function recFill(rec: string): string {
+  if (rec === "PROCEED") return "FFD1FAE5";
+  if (rec === "FURTHER_REVIEW") return "FFFEF3C7";
+  return "FFFEE2E2";
+}
+
 /**
  * Build and trigger a download of the bulk export Excel workbook.
- * This function dynamically imports xlsx so it is only bundled client-side.
+ * Dynamically imports ExcelJS so it is only bundled client-side.
  */
 export async function downloadBulkExcel(rows: ExportRow[]): Promise<void> {
-  // Dynamic import — avoids bundling xlsx on the server.
-  const XLSX = await import("xlsx");
-
-  const wb = XLSX.utils.book_new();
+  const ExcelJS = (await import("exceljs")).default;
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "IST Screener — Catalyze Partners";
+  wb.created = new Date();
 
   // ─────────────────────────────────────────────
   // Sheet 1: Summary
   // ─────────────────────────────────────────────
 
-  const summaryHeader = [
-    "Company Name",
-    "Date Screened",
-    "Deal Type",
-    "Sector",
-    "Deal Source",
-    "Screened By",
-    "Composite Score",
-    "Recommendation",
-    ...PE_DIMENSIONS.map((d) => `Score: ${d.label}`),
-    // IP-track extra sections
-    "Score: Technology Readiness",
-    "Score: IP Strength & Defensibility",
-    "Score: Commercialization Pathway",
-    "Score: Orthogonal Application Potential",
-    "Executive Summary",
+  const summary = wb.addWorksheet("Summary");
+
+  const summaryColumns = [
+    { header: "Company Name", key: "companyName", width: 30 },
+    { header: "Date Screened", key: "dateScreened", width: 16 },
+    { header: "Deal Type", key: "dealType", width: 18 },
+    { header: "Sector", key: "sector", width: 22 },
+    { header: "Deal Source", key: "dealSource", width: 24 },
+    { header: "Screened By", key: "screenedBy", width: 22 },
+    { header: "Composite Score", key: "compositeScore", width: 16 },
+    { header: "Recommendation", key: "recommendation", width: 18 },
+    ...PE_DIMENSIONS.map((d) => ({
+      header: `Score: ${d.label}`,
+      key: d.key,
+      width: 18,
+    })),
+    { header: "Score: Technology Readiness", key: "technologyReadiness", width: 22 },
+    { header: "Score: IP Strength & Defensibility", key: "ipStrength", width: 28 },
+    { header: "Score: Commercialization Pathway", key: "commercialization", width: 28 },
+    { header: "Score: Orthogonal Applications", key: "orthogonal", width: 26 },
+    { header: "Executive Summary", key: "executiveSummary", width: 70 },
   ];
 
-  const summaryData: (string | number | null)[][] = rows.map(
-    ({ analysis, scoringResult, dealSource, dateScreened, sector, screenedBy }) => {
-      const a = analysis;
-      const formatDate = (iso?: string) => {
-        if (!iso) return "";
-        try {
-          return new Date(iso).toLocaleDateString("en-US", {
-            year: "numeric",
-            month: "short",
-            day: "numeric",
-          });
-        } catch {
-          return iso;
-        }
-      };
-      return [
-        a.companyName,
-        formatDate(dateScreened ?? a.analysisDate),
-        a.dealType === "traditional_pe" ? "Traditional PE" : "IP / Technology",
-        sector ?? null,
-        dealSource ?? null,
-        screenedBy ?? null,
-        scoringResult.compositeScore,
-        scoringResult.recommendation,
-        // PE dimension scores
-        scoringResult.dimensionScores.companyOverview ?? null,
-        scoringResult.dimensionScores.marketOpportunity ?? null,
-        scoringResult.dimensionScores.financialProfile ?? null,
-        scoringResult.dimensionScores.managementTeam ?? null,
-        scoringResult.dimensionScores.investmentThesis ?? null,
-        scoringResult.dimensionScores.riskAssessment ?? null,
-        scoringResult.dimensionScores.dealDynamics ?? null,
-        // IP-track sections (null when not applicable)
-        a.technologyReadiness?.score ?? null,
-        a.ipStrengthDefensibility?.score ?? null,
-        a.commercializationPathway?.score ?? null,
-        a.orthogonalApplicationPotential?.score ?? null,
-        a.executiveSummary,
-      ];
-    }
-  );
+  summary.columns = summaryColumns;
 
-  const summarySheet = XLSX.utils.aoa_to_sheet([summaryHeader, ...summaryData]);
+  // Style the header row
+  const headerRow = summary.getRow(1);
+  headerRow.font = { bold: true, color: { argb: "FFFFFFFF" } };
+  headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+  headerRow.alignment = { vertical: "middle", wrapText: true };
+  headerRow.height = 24;
 
-  // Set column widths for readability.
-  summarySheet["!cols"] = [
-    { wch: 28 }, // Company Name
-    { wch: 14 }, // Date Screened
-    { wch: 16 }, // Deal Type
-    { wch: 20 }, // Sector
-    { wch: 22 }, // Deal Source
-    { wch: 20 }, // Screened By
-    { wch: 16 }, // Composite Score
-    { wch: 16 }, // Recommendation
-    ...PE_DIMENSIONS.map(() => ({ wch: 14 })), // dimension scores
-    { wch: 14 }, // TRL
-    { wch: 14 }, // IP Strength
-    { wch: 14 }, // Commercialization
-    { wch: 14 }, // Orthogonal
-    { wch: 60 }, // Executive Summary
-  ];
+  // Data rows
+  rows.forEach(({ analysis, scoringResult, dealSource, dateScreened, sector, screenedBy }) => {
+    const row = summary.addRow({
+      companyName: analysis.companyName,
+      dateScreened: formatDate(dateScreened ?? analysis.analysisDate),
+      dealType: analysis.dealType === "traditional_pe" ? "Traditional PE" : "IP / Technology",
+      sector: sector ?? "",
+      dealSource: dealSource ?? "",
+      screenedBy: screenedBy ?? "",
+      compositeScore: scoringResult.compositeScore,
+      recommendation: scoringResult.recommendation,
+      ...Object.fromEntries(
+        PE_DIMENSIONS.map((d) => [d.key, scoringResult.dimensionScores[d.key] ?? ""])
+      ),
+      technologyReadiness: analysis.technologyReadiness?.score ?? "",
+      ipStrength: analysis.ipStrengthDefensibility?.score ?? "",
+      commercialization: analysis.commercializationPathway?.score ?? "",
+      orthogonal: analysis.orthogonalApplicationPotential?.score ?? "",
+      executiveSummary: analysis.executiveSummary,
+    });
 
-  XLSX.utils.book_append_sheet(wb, summarySheet, "Summary");
+    // Colour-code composite score and recommendation
+    const scoreCell = row.getCell("compositeScore");
+    scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: scoreFill(scoringResult.compositeScore) } };
+    scoreCell.font = { bold: true };
+
+    const recCell = row.getCell("recommendation");
+    recCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: recFill(scoringResult.recommendation) } };
+    recCell.font = { bold: true };
+
+    // Colour-code individual dimension scores
+    PE_DIMENSIONS.forEach((d) => {
+      const score = scoringResult.dimensionScores[d.key];
+      if (score !== undefined) {
+        const cell = row.getCell(d.key);
+        cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: scoreFill(score) } };
+      }
+    });
+
+    row.alignment = { vertical: "top", wrapText: false };
+  });
+
+  // Freeze the header row and company-name column
+  summary.views = [{ state: "frozen", xSplit: 1, ySplit: 1, activeCell: "B2" }];
 
   // ─────────────────────────────────────────────
   // Sheets 2…N: One sheet per screening
   // ─────────────────────────────────────────────
 
   rows.forEach(({ analysis, scoringResult }, idx) => {
-    const a = analysis;
-    const sheetRows: (string | number | null)[][] = [];
+    const ws = wb.addWorksheet(toSheetName(analysis.companyName, idx));
+
+    ws.columns = [
+      { key: "label", width: 32 },
+      { key: "value", width: 12 },
+      { key: "commentary", width: 55 },
+      { key: "findings", width: 60 },
+    ];
+
+    const addHeader = (text: string) => {
+      const r = ws.addRow([text]);
+      r.font = { bold: true, size: 11, color: { argb: "FFFFFFFF" } };
+      r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF0F172A" } };
+      r.height = 18;
+      ws.mergeCells(`A${r.number}:D${r.number}`);
+    };
+
+    const addSubHeader = (text: string) => {
+      const r = ws.addRow([text]);
+      r.font = { bold: true, color: { argb: "FF4F46E5" } };
+      r.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFEEF2FF" } };
+      ws.mergeCells(`A${r.number}:D${r.number}`);
+    };
+
+    const addKV = (label: string, value: string | number | null) => {
+      const r = ws.addRow([label, String(value ?? "")]);
+      r.getCell(1).font = { bold: true };
+    };
+
+    const addBlank = () => ws.addRow([]);
 
     // ---- Header block ----
-    sheetRows.push(["Company", a.companyName]);
-    sheetRows.push(["Deal Type", a.dealType === "traditional_pe" ? "Traditional PE" : "IP / Technology"]);
-    sheetRows.push(["Analysis Date", a.analysisDate]);
-    sheetRows.push(["Composite Score", scoringResult.compositeScore]);
-    sheetRows.push(["Recommendation", scoringResult.recommendation]);
-    sheetRows.push(["Disqualified", scoringResult.isDisqualified ? "Yes" : "No"]);
-    sheetRows.push([]);
-    sheetRows.push(["Executive Summary"]);
-    sheetRows.push([a.executiveSummary]);
-    sheetRows.push([]);
+    addHeader(`${analysis.companyName} — IST Screening Report`);
+    addKV("Deal Type", analysis.dealType === "traditional_pe" ? "Traditional PE" : "IP / Technology");
+    addKV("Analysis Date", analysis.analysisDate);
+    addKV("Composite Score", `${scoringResult.compositeScore.toFixed(1)} / 10`);
+    addKV("Recommendation", scoringResult.recommendation);
+    addKV("Disqualified", scoringResult.isDisqualified ? "Yes" : "No");
+    addBlank();
 
-    // ---- Dimension sections ----
-    sheetRows.push(["Section", "Score", "Commentary", "Key Findings"]);
+    // ---- Executive Summary ----
+    addSubHeader("Executive Summary");
+    const summaryTextRow = ws.addRow([analysis.executiveSummary]);
+    summaryTextRow.alignment = { wrapText: true };
+    summaryTextRow.height = 60;
+    ws.mergeCells(`A${summaryTextRow.number}:D${summaryTextRow.number}`);
+    addBlank();
 
-    const pushSection = (
+    // ---- Section headers ----
+    addSubHeader("Dimension Analysis");
+    const colHeaders = ws.addRow(["Section", "Score", "Commentary", "Key Findings"]);
+    colHeaders.font = { bold: true };
+    colHeaders.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF1F5F9" } };
+
+    const addSection = (
       section: { sectionName: string; score: number; commentary: string; keyFindings: string[] } | undefined
     ) => {
       if (!section) return;
-      sheetRows.push([
+      const r = ws.addRow([
         section.sectionName,
         section.score,
         section.commentary,
-        section.keyFindings.join("\n• "),
+        section.keyFindings.map((f, i) => `${i + 1}. ${f}`).join("\n"),
       ]);
+      r.alignment = { vertical: "top", wrapText: true };
+      // Colour-code score cell
+      const scoreCell = r.getCell(2);
+      scoreCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: scoreFill(section.score) } };
+      scoreCell.font = { bold: true };
+      r.height = Math.max(18, section.keyFindings.length * 15);
     };
 
-    pushSection(a.companyOverview);
-    pushSection(a.marketOpportunity);
-    pushSection(a.financialProfile);
-    pushSection(a.managementTeam);
-    pushSection(a.investmentThesis);
-    pushSection(a.riskAssessment);
-    pushSection(a.dealDynamics);
+    addSection(analysis.companyOverview);
+    addSection(analysis.marketOpportunity);
+    addSection(analysis.financialProfile);
+    addSection(analysis.managementTeam);
+    addSection(analysis.investmentThesis);
+    addSection(analysis.riskAssessment);
+    addSection(analysis.dealDynamics);
 
     // IP-track sections
-    if (a.technologyReadiness) {
-      pushSection(a.technologyReadiness);
-      if (a.technologyReadiness.trlLevel !== null && a.technologyReadiness.trlLevel !== undefined) {
-        sheetRows.push(["", "", `TRL Level: ${a.technologyReadiness.trlLevel}`, ""]);
+    if (analysis.technologyReadiness) {
+      addSection(analysis.technologyReadiness);
+      if (analysis.technologyReadiness.trlLevel !== null && analysis.technologyReadiness.trlLevel !== undefined) {
+        ws.addRow(["", "", `TRL Level: ${analysis.technologyReadiness.trlLevel}`, ""]);
       }
     }
-    pushSection(a.ipStrengthDefensibility);
-    if (a.commercializationPathway) {
-      pushSection(a.commercializationPathway);
-      if (a.commercializationPathway.phaseTimeline?.length) {
-        sheetRows.push(["", "", "Phase Timeline:", a.commercializationPathway.phaseTimeline.join("\n")]);
+    addSection(analysis.ipStrengthDefensibility);
+    if (analysis.commercializationPathway) {
+      addSection(analysis.commercializationPathway);
+      if (analysis.commercializationPathway.phaseTimeline?.length) {
+        const r = ws.addRow([
+          "",
+          "",
+          "Phase Timeline:",
+          analysis.commercializationPathway.phaseTimeline.join("\n"),
+        ]);
+        r.alignment = { vertical: "top", wrapText: true };
+        r.height = analysis.commercializationPathway.phaseTimeline.length * 18;
       }
     }
-    if (a.orthogonalApplicationPotential) {
-      pushSection(a.orthogonalApplicationPotential);
-      if (a.orthogonalApplicationPotential.adjacentMarkets?.length) {
-        sheetRows.push([
+    if (analysis.orthogonalApplicationPotential) {
+      addSection(analysis.orthogonalApplicationPotential);
+      if (analysis.orthogonalApplicationPotential.adjacentMarkets?.length) {
+        const r = ws.addRow([
           "",
           "",
           "Adjacent Markets:",
-          a.orthogonalApplicationPotential.adjacentMarkets
+          analysis.orthogonalApplicationPotential.adjacentMarkets
             .map((m) => `${m.market} — ${m.tamEstimate}: ${m.rationale}`)
             .join("\n"),
         ]);
+        r.alignment = { vertical: "top", wrapText: true };
+        r.height = analysis.orthogonalApplicationPotential.adjacentMarkets.length * 24;
       }
     }
 
-    // Dimension weights
-    sheetRows.push([]);
-    sheetRows.push(["Dimension Weights Used"]);
-    for (const dim of PE_DIMENSIONS) {
-      const weight = scoringResult.dimensionWeights[dim.key];
+    // ---- Dimension weights ----
+    addBlank();
+    addSubHeader("Dimension Weights Used");
+    PE_DIMENSIONS.forEach((d) => {
+      const weight = scoringResult.dimensionWeights[d.key];
       if (weight !== undefined) {
-        sheetRows.push([dim.label, `${weight}%`]);
+        ws.addRow([d.label, `${weight}%`]);
       }
-    }
+    });
 
-    const ws = XLSX.utils.aoa_to_sheet(sheetRows);
-    ws["!cols"] = [
-      { wch: 30 }, // Section name / label
-      { wch: 10 }, // Score / value
-      { wch: 55 }, // Commentary
-      { wch: 60 }, // Key findings
-    ];
-
-    const sheetName = toSheetName(a.companyName, idx);
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    // Freeze the top row
+    ws.views = [{ state: "frozen", ySplit: 1, activeCell: "A2" }];
   });
 
   // ─────────────────────────────────────────────
   // Write & trigger download
   // ─────────────────────────────────────────────
 
+  const buffer = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
   const timestamp = new Date().toISOString().slice(0, 10);
-  const filename = `IST_Bulk_Export_${timestamp}.xlsx`;
-
-  XLSX.writeFile(wb, filename);
+  a.download = `IST_Bulk_Export_${timestamp}.xlsx`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
+
