@@ -13,6 +13,7 @@ import type { TooltipProps } from "recharts";
 import { useState, useCallback } from "react";
 import Link from "next/link";
 import { addToDealFlow } from "@/lib/actions/addToDealFlow";
+import ShareEmailModal from "./ShareEmailModal";
 import type {
   ISTAnalysis,
   ISTSection,
@@ -757,6 +758,7 @@ export default function ScreeningResultsPage({
 }: ScreeningResultsPageProps) {
   const [rawExpanded, setRawExpanded] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [dealFlowState, setDealFlowState] = useState<
     "idle" | "loading" | "success" | "error"
   >("idle");
@@ -937,8 +939,8 @@ export default function ScreeningResultsPage({
               </button>
               <button
                 className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
-                onClick={() => navigator.clipboard.writeText(window.location.href)}
-                title="Share"
+                onClick={() => setShareModalOpen(true)}
+                title="Share via Email"
               >
                 <svg
                   className="w-3.5 h-3.5"
@@ -1482,6 +1484,17 @@ export default function ScreeningResultsPage({
           </span>
         </div>
       </main>
+
+      {/* Share via Email modal */}
+      {shareModalOpen && (
+        <ShareEmailModal
+          isOpen={shareModalOpen}
+          onClose={() => setShareModalOpen(false)}
+          analysis={analysis}
+          scoringResult={scoringResult}
+          screeningId={screeningId}
+        />
+      )}
     </div>
   );
 }
