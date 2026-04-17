@@ -687,6 +687,251 @@ interface EdgeCaseFlags {
 }
 
 // ---------------------------------------------------------------------------
+// Market Research Enhancement (PRD §8.3)
+// Fires a second Claude call with the web_search_20250305 tool enabled to
+// surface real-time market data and inject it into the Market Attractiveness
+// (marketOpportunity) and Competitive Position (companyOverview) sections of
+// the ISTAnalysis with [Web Research] tags and source citations.
+// ---------------------------------------------------------------------------
+
+const MARKET_RESEARCH_SYSTEM_PROMPT = `\
+You are a market research specialist supporting a private equity firm's deal screening \
+process. Your role is to use web search to find current, factual market data that \
+supplements the firm's analysis. Be precise with numbers, cite sources explicitly, and \
+keep findings concise. Focus on data directly relevant to investment decision-making: \
+market size, growth rates, recent transaction multiples, and competitive dynamics.
+
+When asked to search, always search for all three topics requested. Present each \
+finding with specific data points wherever possible, and always note your sources.`;
+
+function buildMarketResearchPrompt(
+  companyName: string,
+  industryContext: string,
+  currentYear: string,
+): string {
+  return `\
+Using web search, find current market data to supplement a private equity deal analysis.
+
+Company being analyzed: "${companyName}"
+
+Industry context from the deal analysis:
+${industryContext}
+
+Please search for and summarize the following. For each topic include specific data \
+points (numbers, percentages, deal sizes) and cite your sources inline.
+
+1. MARKET SIZE & GROWTH
+   Search for "[industry] market size CAGR 2024" where [industry] is the relevant \
+sector inferred from the context above. Summarize: current market size, CAGR, and \
+key growth drivers or headwinds.
+
+2. COMPARABLE M&A TRANSACTIONS
+   Search for "comparable M&A transactions [sector] ${currentYear}" and the prior \
+two years. Summarize: recent deal multiples (EV/EBITDA), deal sizes, and notable \
+strategic rationale.
+
+3. COMPETITIVE LANDSCAPE
+   Search for "${companyName} competitors". Identify: key competitors, relative \
+market positions, and any competitive dynamics relevant to this investment.
+
+Structure your response EXACTLY using these section headers (all caps, followed by a \
+colon and a newline):
+
+MARKET SIZE & GROWTH:
+[2\u20133 sentences with specific numbers and inline source citations]
+
+COMPARABLE TRANSACTIONS:
+[2\u20133 sentences with specific multiples/sizes and inline source citations]
+
+COMPETITIVE LANDSCAPE:
+[2\u20133 sentences identifying key players and dynamics with inline source citations]
+
+SOURCES:
+[List every source used, one per line, prefixed with a bullet \u2022]
+
+Keep each section to 2\u20133 concise sentences. Do not add any extra sections.`;
+}
+
+interface MarketResearchFindings {
+  marketAndGrowth: string;
+  comparableTransactions: string;
+  competitiveLandscape: string;
+  sources: string[];
+}
+
+function parseMarketResearchResponse(text: string): MarketResearchFindings {
+  const findings: MarketResearchFindings = {
+    marketAndGrowth: '',
+    comparableTransactions: '',
+    competitiveLandscape: '',
+    sources: [],
+  };
+
+  const marketMatch = text.match(
+    /MARKET SIZE & GROWTH:\s*([\s\S]*?)(?=COMPARABLE TRANSACTIONS:|COMPETITIVE LANDSCAPE:|SOURCES:|$)/i,
+  );
+  const transactionsMatch = text.match(
+    /COMPARABLE TRANSACTIONS:\s*([\s\S]*?)(?=MARKET SIZE & GROWTH:|COMPETITIVE LANDSCAPE:|SOURCES:|$)/i,
+  );
+  const competitiveMatch = text.match(
+    /COMPETITIVE LANDSCAPE:\s*([\s\S]*?)(?=MARKET SIZE & GROWTH:|COMPARABLE TRANSACTIONS:|SOURCES:|$)/i,
+  );
+  const sourcesMatch = text.match(
+    /SOURCES:\s*([\s\S]*?)(?=MARKET SIZE & GROWTH:|COMPARABLE TRANSACTIONS:|COMPETITIVE LANDSCAPE:|$)/i,
+  );
+
+  if (marketMatch) findings.marketAndGrowth = marketMatch[1].trim();
+  if (transactionsMatch) findings.comparableTransactions = transactionsMatch[1].trim();
+  if (competitiveMatch) findings.competitiveLandscape = competitiveMatch[1].trim();
+
+  if (sourcesMatch) {
+    findings.sources = sourcesMatch[1]
+      .trim()
+      .split('\n')
+      .map((line: string) => line.replace(/^[•\-*]\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  return findings;
+}
+
+function buildSourcesNote(sources: string[], maxSources: number): string {
+  if (sources.length === 0) return '';
+  const cited = sources.slice(0, maxSources).join('; ');
+  return ` [Sources: ${cited}]`;
+}
+
+function injectMarketResearch(
+  analysis: ISTAnalysis,
+  findings: MarketResearchFindings,
+): ISTAnalysis {
+  const enhanced: ISTAnalysis = { ...analysis };
+
+  // ── marketOpportunity (Market Attractiveness) ─────────────────────────────
+  const marketInserts: string[] = [];
+  if (findings.marketAndGrowth) {
+    marketInserts.push(`[Web Research] Market Size & Growth: ${findings.marketAndGrowth}`);
+  }
+  if (findings.comparableTransactions) {
+    marketInserts.push(`[Web Research] Comparable Transactions: ${findings.comparableTransactions}`);
+  }
+
+  if (marketInserts.length > 0) {
+    const sourcesNote = buildSourcesNote(findings.sources, 3);
+    enhanced.marketOpportunity = {
+      ...analysis.marketOpportunity,
+      commentary:
+        analysis.marketOpportunity.commentary +
+        '\n\n' +
+        marketInserts.join('\n\n') +
+        sourcesNote,
+      keyFindings: [
+        ...analysis.marketOpportunity.keyFindings,
+        ...marketInserts,
+      ],
+    };
+  }
+
+  // ── companyOverview (Competitive Position) ────────────────────────────────
+  if (findings.competitiveLandscape) {
+    const insert = `[Web Research] Competitive Landscape: ${findings.competitiveLandscape}`;
+    const sourcesNote = buildSourcesNote(findings.sources, 2);
+    enhanced.companyOverview = {
+      ...analysis.companyOverview,
+      commentary:
+        analysis.companyOverview.commentary +
+        '\n\n' +
+        insert +
+        sourcesNote,
+      keyFindings: [
+        ...analysis.companyOverview.keyFindings,
+        insert,
+      ],
+    };
+  }
+
+  return enhanced;
+}
+
+interface MarketResearchCallResult {
+  findings: MarketResearchFindings;
+  inputTokens: number;
+  outputTokens: number;
+  latencyMs: number;
+}
+
+async function performMarketResearch(
+  anthropicApiKey: string,
+  companyName: string,
+  industryContext: string,
+): Promise<MarketResearchCallResult | null> {
+  const currentYear = new Date().getFullYear().toString();
+  const prompt = buildMarketResearchPrompt(companyName, industryContext, currentYear);
+
+  const startMs = Date.now();
+  let researchResponse: Response;
+  try {
+    researchResponse = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': anthropicApiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-beta': 'web-search-2025-03-05',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250929',
+        max_tokens: 2048,
+        tools: [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }],
+        system: MARKET_RESEARCH_SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+  } catch (err) {
+    console.error('Market research fetch failed:', err);
+    return null;
+  }
+  const latencyMs = Date.now() - startMs;
+
+  if (!researchResponse.ok) {
+    const errBody = await researchResponse.text().catch(() => '');
+    console.error(`Market research API error ${researchResponse.status}:`, errBody);
+    return null;
+  }
+
+  let researchData: Record<string, unknown>;
+  try {
+    researchData = await researchResponse.json();
+  } catch {
+    console.error('Failed to parse market research JSON response');
+    return null;
+  }
+
+  const usage = researchData?.usage as Record<string, number> | undefined;
+  const inputTokens = usage?.input_tokens ?? 0;
+  const outputTokens = usage?.output_tokens ?? 0;
+
+  // Extract text content — skip tool_use / tool_result blocks so we only
+  // process Claude's final synthesised answer.
+  const content = researchData?.content;
+  if (!Array.isArray(content)) return null;
+
+  const textContent = (content as Array<Record<string, unknown>>)
+    .filter((block) => block?.type === 'text')
+    .map((block) => String(block?.text ?? ''))
+    .join('\n')
+    .trim();
+
+  if (!textContent) {
+    console.error('Market research returned empty text content');
+    return null;
+  }
+
+  const findings = parseMarketResearchResponse(textContent);
+  return { findings, inputTokens, outputTokens, latencyMs };
+}
+
+// ---------------------------------------------------------------------------
 // Cost estimation — claude-sonnet-4-5 pricing
 // Rates as of 2025-09: Input $3 / million tokens; Output $15 / million tokens.
 // These values are specific to the claude-sonnet-4-5-20250929 model.
@@ -1132,12 +1377,67 @@ serve(async (req: Request): Promise<Response> => {
     });
 
     // ------------------------------------------------------------------
-    // 8. Return the parsed ISTAnalysis, appending any edge-case flags
+    // 8. Market Research Enhancement (PRD §8.3)
+    //    Best-effort: a failure here never prevents the main analysis from
+    //    being returned. The second Claude call uses the web_search tool to
+    //    fetch real-time market data and inject [Web Research]-tagged
+    //    findings into the Market Attractiveness (marketOpportunity) and
+    //    Competitive Position (companyOverview) score justifications.
+    // ------------------------------------------------------------------
+    let finalAnalysis: ISTAnalysis = parsedAnalysis as ISTAnalysis;
+    let marketResearchPerformed = false;
+
+    try {
+      const validatedAnalysis = parsedAnalysis as ISTAnalysis;
+      // Build a brief industry context from the two most relevant sections.
+      const industryContext = [
+        validatedAnalysis.marketOpportunity.commentary.slice(0, 250),
+        validatedAnalysis.companyOverview.commentary.slice(0, 250),
+      ]
+        .filter(Boolean)
+        .join('\n');
+
+      const researchResult = await performMarketResearch(
+        anthropicApiKey,
+        validatedAnalysis.companyName,
+        industryContext,
+      );
+
+      if (researchResult) {
+        finalAnalysis = injectMarketResearch(validatedAnalysis, researchResult.findings);
+        marketResearchPerformed = true;
+
+        // Log the second (web research) API call separately.
+        await logApiUsage({
+          supabaseUrl,
+          serviceRoleKey: supabaseServiceRoleKey,
+          userId: user.id,
+          model: 'claude-sonnet-4-5-20250929',
+          inputTokens: researchResult.inputTokens,
+          outputTokens: researchResult.outputTokens,
+          costUsd: estimateCostUsd(researchResult.inputTokens, researchResult.outputTokens),
+          latencyMs: researchResult.latencyMs,
+          httpStatus: 200,
+          errorMessage: null,
+        });
+      }
+    } catch (researchErr) {
+      // Non-fatal: log and proceed with the original analysis.
+      console.error('Market research enhancement failed (non-fatal):', researchErr);
+    }
+
+    // ------------------------------------------------------------------
+    // 9. Return the (possibly enhanced) ISTAnalysis, appending any flags
     // ------------------------------------------------------------------
     const hasFlags = Object.keys(edgeCaseFlags).length > 0;
-    const responseBody = hasFlags
-      ? { ...parsedAnalysis, _flags: edgeCaseFlags }
-      : parsedAnalysis;
+    const responseBody =
+      hasFlags || marketResearchPerformed
+        ? {
+            ...finalAnalysis,
+            ...(hasFlags ? { _flags: edgeCaseFlags } : {}),
+            ...(marketResearchPerformed ? { _marketResearch: true } : {}),
+          }
+        : finalAnalysis;
 
     return new Response(JSON.stringify(responseBody), {
       status: 200,
