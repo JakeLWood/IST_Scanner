@@ -35,6 +35,12 @@ export default async function Home() {
           >
             Deal Log
           </a>
+          <a
+            href="/compare"
+            className="rounded-lg border border-slate-700 px-4 py-2 text-center text-sm font-medium text-slate-300 transition-colors hover:border-slate-500 hover:text-slate-100"
+          >
+            Compare Deals
+          </a>
           <SignOutButton />
         </div>
       </main>
