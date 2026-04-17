@@ -7,9 +7,9 @@ import { useRouter } from "next/navigation";
 import { extractTextWithMetadata } from "@/lib/extractTextFromFile";
 import { saveScreening } from "@/lib/actions/saveScreening";
 import { useAuthContext } from "@/app/providers/auth-provider";
-import { callEdgeFunction } from "@/lib/api/edgeFunctions";
+import { callEdgeFunction, callEdgeFunctionStreaming } from "@/lib/api/edgeFunctions";
+import type { AnalysisStreamEvent } from "@/lib/api/edgeFunctions";
 import type { DealTypeClassificationResult } from "@/lib/prompts/classify-deal-type";
-import type { ISTAnalysis } from "@/types/ist-analysis";
 
 const ACCEPTED_TYPES: Record<string, string> = {
   "application/pdf": "PDF",
@@ -77,6 +77,9 @@ export default function UploadPage() {
 
   const [processingStep, setProcessingStep] = useState<ProcessingStep>("idle");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  // Streaming state — shows live text tokens during the IST analysis phase.
+  const [streamingMessage, setStreamingMessage] = useState<string>("");
+  const [streamingText, setStreamingText] = useState<string>("");
 
   const [classification, setClassification] =
     useState<DealTypeClassificationResult | null>(null);
@@ -211,10 +214,26 @@ export default function UploadPage() {
     if (!confirmedDealType || !session?.access_token) return;
     setSubmitError(null);
 
+    // Record start time for end-to-end latency measurement (read in results page).
+    if (typeof sessionStorage !== "undefined") {
+      sessionStorage.setItem("ist_analysis_start", Date.now().toString());
+    }
+
     try {
-      // Step 4 — Analyse
+      // Step 4 — Analyse (streaming mode: forward SSE tokens to UI)
       setProcessingStep("analyzing");
-      const analysis = await callEdgeFunction<ISTAnalysis>(
+      setStreamingMessage("");
+      setStreamingText("");
+
+      const onEvent = (event: AnalysisStreamEvent) => {
+        if (event.type === "progress") {
+          setStreamingMessage(event.message);
+        } else if (event.type === "text_delta") {
+          setStreamingText((prev) => prev + event.text);
+        }
+      };
+
+      const analysis = await callEdgeFunctionStreaming(
         "analyze-deal",
         {
           extractedText: extractedTextRef.current,
@@ -222,6 +241,7 @@ export default function UploadPage() {
           isOCRDerived: isOCRDerivedRef.current,
         },
         session.access_token,
+        onEvent,
       );
 
       // Step 5 — Save
@@ -319,7 +339,11 @@ export default function UploadPage() {
 
           {/* Processing progress */}
           {(isProcessing || isDone) && (
-            <ProcessingIndicator currentStep={processingStep} />
+            <ProcessingIndicator
+              currentStep={processingStep}
+              streamingMessage={streamingMessage}
+              streamingText={streamingText}
+            />
           )}
 
           {/* Upload Form — only shown when idle */}
@@ -627,9 +651,18 @@ function DealTypeConfirmation({
 
 // ─── ProcessingIndicator ──────────────────────────────────────────────────────
 
-function ProcessingIndicator({ currentStep }: { currentStep: ProcessingStep }) {
+function ProcessingIndicator({
+  currentStep,
+  streamingMessage,
+  streamingText,
+}: {
+  currentStep: ProcessingStep;
+  streamingMessage: string;
+  streamingText: string;
+}) {
   const activeIndex = PROGRESS_STEPS.findIndex((s) => s.key === currentStep);
   const isDone = currentStep === "done";
+  const isAnalyzing = currentStep === "analyzing";
 
   return (
     <div className="mb-6 rounded-xl border border-slate-700 bg-slate-900 p-6">
@@ -645,22 +678,30 @@ function ProcessingIndicator({ currentStep }: { currentStep: ProcessingStep }) {
           return (
             <li key={step.key} className="flex items-center gap-4">
               <StepDot active={isActive} complete={isComplete} index={index} />
-              <p
-                className={`text-sm font-medium ${
-                  isComplete
-                    ? "text-indigo-300"
-                    : isActive
-                      ? "text-slate-200"
-                      : "text-slate-600"
-                }`}
-              >
-                {step.label}
-                {isActive && (
-                  <span className="ml-2 animate-pulse text-indigo-400">
-                    &hellip;
-                  </span>
+              <div className="flex-1">
+                <p
+                  className={`text-sm font-medium ${
+                    isComplete
+                      ? "text-indigo-300"
+                      : isActive
+                        ? "text-slate-200"
+                        : "text-slate-600"
+                  }`}
+                >
+                  {step.label}
+                  {isActive && (
+                    <span className="ml-2 animate-pulse text-indigo-400">
+                      &hellip;
+                    </span>
+                  )}
+                </p>
+                {/* Show streaming phase message under the analyzing step */}
+                {isActive && isAnalyzing && streamingMessage && (
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {streamingMessage}
+                  </p>
                 )}
-              </p>
+              </div>
             </li>
           );
         })}
@@ -687,6 +728,15 @@ function ProcessingIndicator({ currentStep }: { currentStep: ProcessingStep }) {
           </li>
         )}
       </ol>
+
+      {/* Live streaming preview — shows raw Claude tokens as they arrive */}
+      {isAnalyzing && streamingText && (
+        <div className="mt-5 rounded-lg border border-slate-700 bg-slate-800/60 p-3 max-h-32 overflow-y-auto">
+          <p className="text-[11px] font-mono text-slate-400 leading-relaxed whitespace-pre-wrap break-all">
+            {streamingText}
+          </p>
+        </div>
+      )}
     </div>
   );
 }
