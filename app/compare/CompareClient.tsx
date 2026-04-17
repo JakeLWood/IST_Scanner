@@ -60,7 +60,7 @@ interface CompareClientProps {
 const MAX_SELECTED = 4;
 const MIN_SELECTED = 2;
 
-/** One distinct colour per deal slot (indigo, emerald, amber, pink). */
+/** One distinct color per deal slot (indigo, emerald, amber, pink). */
 const DEAL_COLORS = ["#6366f1", "#22c55e", "#f59e0b", "#ec4899"];
 
 /** The 7 standard PE-track dimension keys in display order. */
@@ -271,7 +271,11 @@ function buildRadarData(deals: CompareRow[], dimensions: string[]): RadarPoint[]
     const point: RadarPoint = { subject: DIMENSION_LABELS[dim] ?? dim };
     for (const deal of deals) {
       const score = deal.dimensionScores[dim];
-      point[deal.id] = score !== null && score !== undefined ? score : 0;
+      // Only include numeric scores — null/undefined are omitted so recharts
+      // renders a gap rather than a misleading zero.
+      if (score !== null && score !== undefined) {
+        point[deal.id] = score;
+      }
     }
     return point;
   });
@@ -288,14 +292,18 @@ function OverlaidRadarChart({ deals }: { deals: CompareRow[] }) {
         d.dimensionScores[k] !== undefined && d.dimensionScores[k] !== null,
     ),
   );
-  const dimensions = hasIPDims
-    ? [...PE_DIMENSIONS, ...IP_DIMENSIONS].filter((dim) =>
-        deals.some((d) => {
-          const s = d.dimensionScores[dim];
-          return s !== null && s !== undefined;
-        }),
-      )
+  const allDimensions = hasIPDims
+    ? [...PE_DIMENSIONS, ...IP_DIMENSIONS]
     : PE_DIMENSIONS;
+
+  // Only render dimensions where every selected deal has a score,
+  // so the radar lines are never pulled toward zero by missing values.
+  const dimensions = allDimensions.filter((dim) =>
+    deals.every((d) => {
+      const s = d.dimensionScores[dim];
+      return s !== null && s !== undefined;
+    }),
+  );
 
   const radarData = buildRadarData(deals, dimensions);
 

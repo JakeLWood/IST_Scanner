@@ -134,7 +134,7 @@ function toCompareRow(row: ScreeningListRow): CompareRow {
 
 const DEMO_ROWS: CompareRow[] = [
   {
-    id: "demo",
+    id: "demo-pe1",
     companyName: "Acme Industrial Holdings",
     dealType: "traditional_pe",
     compositeScore: 6.0,
