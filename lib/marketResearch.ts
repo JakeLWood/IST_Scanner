@@ -35,7 +35,7 @@ finding with specific data points wherever possible, and always note your source
 /**
  * Builds the user-turn prompt for the market research Claude call.
  *
- * @param companyName     - Name of the company being analysed.
+ * @param companyName     - Name of the company being analyzed.
  * @param industryContext - Brief text excerpt from the initial analysis that
  *                         conveys the industry/sector (e.g. first 250 chars of
  *                         marketOpportunity.commentary + companyOverview.commentary).
@@ -49,22 +49,22 @@ export function buildMarketResearchPrompt(
   return `\
 Using web search, find current market data to supplement a private equity deal analysis.
 
-Company being analysed: "${companyName}"
+Company being analyzed: "${companyName}"
 
 Industry context from the deal analysis:
 ${industryContext}
 
-Please search for and summarise the following. For each topic include specific data \
+Please search for and summarize the following. For each topic include specific data \
 points (numbers, percentages, deal sizes) and cite your sources inline.
 
 1. MARKET SIZE & GROWTH
    Search for "[industry] market size CAGR 2024" where [industry] is the relevant \
-sector inferred from the context above. Summarise: current market size, CAGR, and \
+sector inferred from the context above. Summarize: current market size, CAGR, and \
 key growth drivers or headwinds.
 
 2. COMPARABLE M&A TRANSACTIONS
    Search for "comparable M&A transactions [sector] ${currentYear}" and the prior \
-two years. Summarise: recent deal multiples (EV/EBITDA), deal sizes, and notable \
+two years. Summarize: recent deal multiples (EV/EBITDA), deal sizes, and notable \
 strategic rationale.
 
 3. COMPETITIVE LANDSCAPE
