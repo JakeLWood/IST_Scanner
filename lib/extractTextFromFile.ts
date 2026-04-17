@@ -11,6 +11,23 @@ import { createWorker } from "tesseract.js";
 const OCR_FALLBACK_THRESHOLD = 100;
 
 /**
+ * Result returned by {@link extractTextWithMetadata}.
+ *
+ * Includes the extracted text and metadata flags that inform downstream
+ * edge-case handling (PRD §9.3 edge case 7 — image-only PDF / OCR).
+ */
+export interface ExtractionResult {
+  /** Raw extracted text. */
+  text: string;
+  /**
+   * True when the text was produced by OCR (Tesseract.js) rather than native
+   * PDF text extraction.  Callers should forward this flag to the AI analysis
+   * edge function so it can apply appropriate confidence caveats.
+   */
+  usedOCR: boolean;
+}
+
+/**
  * Extracts raw text from a {@link File}.
  *
  * Supported formats:
@@ -25,17 +42,34 @@ const OCR_FALLBACK_THRESHOLD = 100;
  * @returns The raw extracted text string.
  */
 export async function extractTextFromFile(file: File): Promise<string> {
+  const { text } = await extractTextWithMetadata(file);
+  return text;
+}
+
+/**
+ * Extracts raw text from a {@link File} and returns metadata about the
+ * extraction process, including whether OCR was used (PRD §9.3 edge case 7).
+ *
+ * Prefer this function over {@link extractTextFromFile} when the caller needs
+ * to forward the `usedOCR` flag to the AI analysis edge function.
+ *
+ * @param file The file to extract text from.
+ * @returns An {@link ExtractionResult} containing the text and the OCR flag.
+ */
+export async function extractTextWithMetadata(
+  file: File,
+): Promise<ExtractionResult> {
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
 
   switch (ext) {
     case "pdf":
-      return extractFromPdf(file);
+      return extractFromPdfWithMetadata(file);
     case "docx":
-      return extractFromDocx(file);
+      return { text: await extractFromDocx(file), usedOCR: false };
     case "pptx":
-      return extractFromPptx(file);
+      return { text: await extractFromPptx(file), usedOCR: false };
     default:
-      return file.text();
+      return { text: await file.text(), usedOCR: false };
   }
 }
 
@@ -50,8 +84,12 @@ async function toBuffer(file: File): Promise<Buffer> {
 /**
  * Attempts native PDF text extraction with `pdf-parse`, then falls back to
  * Tesseract.js OCR if the result is shorter than the threshold.
+ *
+ * @returns An {@link ExtractionResult} including the text and an OCR flag.
  */
-async function extractFromPdf(file: File): Promise<string> {
+async function extractFromPdfWithMetadata(
+  file: File,
+): Promise<ExtractionResult> {
   const buffer = await toBuffer(file);
   let extracted = "";
 
@@ -64,10 +102,11 @@ async function extractFromPdf(file: File): Promise<string> {
   }
 
   if (extracted.length >= OCR_FALLBACK_THRESHOLD) {
-    return extracted;
+    return { text: extracted, usedOCR: false };
   }
 
-  return ocrPdf(buffer);
+  const text = await ocrPdf(buffer);
+  return { text, usedOCR: true };
 }
 
 /**
