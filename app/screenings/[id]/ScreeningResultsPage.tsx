@@ -1,17 +1,10 @@
 "use client";
 
-import {
-  RadarChart,
-  PolarGrid,
-  PolarAngleAxis,
-  PolarRadiusAxis,
-  Radar,
-  ResponsiveContainer,
-  Tooltip,
-} from "recharts";
-import type { TooltipProps } from "recharts";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import Link from "next/link";
+
+const ScoreRadarChart = lazy(() => import("./ScoreRadarChart"));
+import type { RadarDataPoint } from "./ScoreRadarChart";
 import { addToDealFlow } from "@/lib/actions/addToDealFlow";
 import ShareEmailModal from "./ShareEmailModal";
 import type {
@@ -308,81 +301,6 @@ function SectionCommentaryCard({
 // ---------------------------------------------------------------------------
 // Radar Chart
 // ---------------------------------------------------------------------------
-
-interface RadarDataPoint {
-  subject: string;
-  value: number;
-  fullMark: number;
-  justification?: string;
-}
-
-const RECOMMENDATION_COLORS: Record<FinalRecommendation, string> = {
-  PROCEED: "#22C55E",
-  FURTHER_REVIEW: "#F59E0B",
-  PASS: "#EF4444",
-};
-
-function RadarTooltip({ active, payload }: TooltipProps<number, string>) {
-  if (!active || !payload?.length) return null;
-  const point = payload[0]?.payload as RadarDataPoint | undefined;
-  if (!point) return null;
-  const justification = point.justification;
-  return (
-    <div className="rounded-lg border border-slate-700 bg-slate-800 p-3 max-w-[260px]">
-      <p className="font-mono font-bold text-xs text-slate-100 mb-1">{point.subject}</p>
-      <p className={`font-mono text-xs text-slate-400 ${justification ? "mb-2" : "mb-0"}`}>
-        Score:{" "}
-        <span className="font-bold text-slate-100">{point.value} / 10</span>
-      </p>
-      {justification && (
-        <p className="font-mono text-[11px] leading-relaxed text-slate-400 m-0">
-          {justification}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function ScoreRadarChart({
-  data,
-  recommendation,
-}: {
-  data: RadarDataPoint[];
-  recommendation: FinalRecommendation;
-}) {
-  const fillColor = RECOMMENDATION_COLORS[recommendation];
-
-  return (
-    <ResponsiveContainer width="100%" height={320}>
-      <RadarChart data={data} margin={{ top: 20, right: 40, bottom: 20, left: 40 }}>
-        <PolarGrid stroke="#334155" />
-        <PolarAngleAxis
-          dataKey="subject"
-          tick={{
-            fill: "#94a3b8",
-            fontSize: 11,
-            fontFamily: "JetBrains Mono, monospace",
-          }}
-        />
-        <PolarRadiusAxis
-          domain={[0, 10]}
-          tickCount={6}
-          tick={{ fill: "#64748b", fontSize: 9, fontFamily: "JetBrains Mono, monospace" }}
-          axisLine={false}
-        />
-        <Radar
-          name="Score"
-          dataKey="value"
-          stroke={fillColor}
-          fill={fillColor}
-          fillOpacity={0.25}
-          strokeWidth={2}
-        />
-        <Tooltip content={<RadarTooltip />} />
-      </RadarChart>
-    </ResponsiveContainer>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // IP / Technology — specialised components (PRD §3.4)
@@ -765,6 +683,21 @@ export default function ScreeningResultsPage({
   const [dealFlowId, setDealFlowId] = useState<string | null>(null);
   const [dealFlowError, setDealFlowError] = useState<string | null>(null);
 
+  // Measure and log end-to-end latency from upload start to full results display.
+  useEffect(() => {
+    const startStr =
+      typeof sessionStorage !== "undefined"
+        ? sessionStorage.getItem("ist_analysis_start")
+        : null;
+    if (startStr) {
+      const totalMs = Date.now() - parseInt(startStr, 10);
+      console.log(
+        `[IST Screener] End-to-end latency: ${(totalMs / 1000).toFixed(1)}s`,
+      );
+      sessionStorage.removeItem("ist_analysis_start");
+    }
+  }, []);
+
   const handleExportPDF = useCallback(async () => {
     setPdfLoading(true);
     try {
@@ -1144,12 +1077,20 @@ export default function ScreeningResultsPage({
             Score Analysis
           </h2>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Radar Chart */}
+            {/* Radar Chart — lazy-loaded to keep recharts out of the initial bundle */}
             <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
               <h3 className="text-sm font-semibold text-slate-300 mb-2">
                 Score Radar
               </h3>
-              <ScoreRadarChart data={radarData} recommendation={recommendation} />
+              <Suspense
+                fallback={
+                  <div className="h-[320px] flex items-center justify-center text-slate-500 text-sm">
+                    Loading chart…
+                  </div>
+                }
+              >
+                <ScoreRadarChart data={radarData} recommendation={recommendation} />
+              </Suspense>
             </div>
 
             {/* Dimension Score Cards */}

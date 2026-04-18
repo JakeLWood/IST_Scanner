@@ -1013,7 +1013,7 @@ serve(async (req: Request): Promise<Response> => {
     // ------------------------------------------------------------------
     // 2. Parse and validate the request body
     // ------------------------------------------------------------------
-    let body: { extractedText: string; dealType: string; isOCRDerived?: boolean };
+    let body: { extractedText: string; dealType: string; isOCRDerived?: boolean; stream?: boolean };
     try {
       body = await req.json();
     } catch {
@@ -1023,7 +1023,7 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    const { extractedText, dealType, isOCRDerived = false } = body;
+    const { extractedText, dealType, isOCRDerived = false, stream: requestStream = false } = body;
 
     if (!isString(extractedText) || extractedText.trim().length === 0) {
       return new Response(
@@ -1214,6 +1214,258 @@ serve(async (req: Request): Promise<Response> => {
     );
 
     const requestStartMs = Date.now();
+
+    // ------------------------------------------------------------------
+    // 5a. STREAMING MODE — pipe Anthropic tokens to the client via SSE
+    //     and run market research after the stream ends.
+    //     Activated when the request body contains `"stream": true`.
+    // ------------------------------------------------------------------
+    if (requestStream) {
+      const { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+      const writer = writable.getWriter();
+      const enc = new TextEncoder();
+
+      /** Write one SSE event to the response stream. */
+      const sendSse = async (event: Record<string, unknown>): Promise<void> => {
+        try {
+          await writer.write(enc.encode(`data: ${JSON.stringify(event)}\n\n`));
+        } catch {
+          // Client disconnected — ignore write errors.
+        }
+      };
+
+      // Run the full analysis pipeline asynchronously while the streaming
+      // response is delivered to the client.
+      (async () => {
+        try {
+          await sendSse({ type: 'progress', step: 'analyzing', message: 'Running IST analysis…' });
+
+          // ── Call Anthropic with streaming enabled ────────────────────────
+          let anthropicStreamResponse: Response;
+          try {
+            anthropicStreamResponse = await fetch('https://api.anthropic.com/v1/messages', {
+              method: 'POST',
+              headers: {
+                'x-api-key': anthropicApiKey,
+                'anthropic-version': '2023-06-01',
+                'content-type': 'application/json',
+              },
+              body: JSON.stringify({
+                model,
+                max_tokens: 8192,
+                system: systemPrompt,
+                messages: [{ role: 'user', content: analysisPrompt }],
+                stream: true,
+              }),
+            });
+          } catch (fetchErr) {
+            console.error('Streaming: failed to reach Anthropic API:', fetchErr);
+            await sendSse({ type: 'error', message: 'Failed to reach AI provider' });
+            return;
+          }
+
+          if (!anthropicStreamResponse.ok || !anthropicStreamResponse.body) {
+            const errText = await anthropicStreamResponse.text().catch(() => '');
+            console.error(`Streaming: Anthropic API error ${anthropicStreamResponse.status}:`, errText);
+            await logApiUsage({
+              supabaseUrl,
+              serviceRoleKey: supabaseServiceRoleKey,
+              userId: user.id,
+              model,
+              inputTokens: 0,
+              outputTokens: 0,
+              costUsd: 0,
+              latencyMs: Date.now() - requestStartMs,
+              httpStatus: anthropicStreamResponse.status,
+              errorMessage: `Anthropic API error ${anthropicStreamResponse.status}: ${errText.slice(0, 500)}`,
+            });
+            await sendSse({ type: 'error', message: 'AI provider returned an error' });
+            return;
+          }
+
+          // ── Forward text tokens from Anthropic's SSE stream ─────────────
+          const sseReader = anthropicStreamResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let accumulated = '';
+          let sseBuffer = '';
+          let inputTokens = 0;
+          let outputTokens = 0;
+
+          while (true) {
+            const { done, value } = await sseReader.read();
+            if (done) break;
+
+            sseBuffer += decoder.decode(value, { stream: true });
+            const lines = sseBuffer.split('\n');
+            sseBuffer = lines.pop() ?? '';
+
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const raw = line.slice(6).trim();
+              if (!raw || raw === '[DONE]') continue;
+
+              try {
+                const evt = JSON.parse(raw) as Record<string, unknown>;
+
+                if (evt.type === 'message_start') {
+                  const msg = evt.message as { usage?: { input_tokens?: number } } | undefined;
+                  inputTokens = msg?.usage?.input_tokens ?? 0;
+                } else if (
+                  evt.type === 'content_block_delta' &&
+                  (evt.delta as Record<string, unknown>)?.type === 'text_delta'
+                ) {
+                  const text = String((evt.delta as Record<string, unknown>).text ?? '');
+                  accumulated += text;
+                  await sendSse({ type: 'text_delta', text });
+                } else if (evt.type === 'message_delta' && evt.usage) {
+                  outputTokens = (evt.usage as Record<string, number>).output_tokens ?? 0;
+                }
+              } catch {
+                // Ignore malformed SSE lines from Anthropic.
+              }
+            }
+          }
+
+          const streamLatencyMs = Date.now() - requestStartMs;
+          const httpStatusStream = 200;
+          const costUsdStream = estimateCostUsd(inputTokens, outputTokens);
+
+          // ── Parse accumulated JSON ────────────────────────────────────────
+          let parsedAnalysis: unknown;
+          try {
+            const cleaned = accumulated
+              .trim()
+              .replace(/^```(?:json)?\s*/i, '')
+              .replace(/\s*```$/, '');
+            parsedAnalysis = JSON.parse(cleaned);
+          } catch (parseErr) {
+            console.error('Streaming: failed to parse Claude JSON:', parseErr);
+            await logApiUsage({
+              supabaseUrl,
+              serviceRoleKey: supabaseServiceRoleKey,
+              userId: user.id,
+              model,
+              inputTokens,
+              outputTokens,
+              costUsd: costUsdStream,
+              latencyMs: streamLatencyMs,
+              httpStatus: httpStatusStream,
+              errorMessage: `JSON parse error: ${String(parseErr)}`,
+            });
+            await sendSse({ type: 'error', message: 'AI provider returned invalid JSON' });
+            return;
+          }
+
+          if (!validateISTAnalysis(parsedAnalysis)) {
+            console.error('Streaming: ISTAnalysis schema validation failed');
+            await logApiUsage({
+              supabaseUrl,
+              serviceRoleKey: supabaseServiceRoleKey,
+              userId: user.id,
+              model,
+              inputTokens,
+              outputTokens,
+              costUsd: costUsdStream,
+              latencyMs: streamLatencyMs,
+              httpStatus: httpStatusStream,
+              errorMessage: 'ISTAnalysis schema validation failed',
+            });
+            await sendSse({ type: 'error', message: 'AI response did not conform to the ISTAnalysis schema' });
+            return;
+          }
+
+          // Log the successful main analysis call.
+          await logApiUsage({
+            supabaseUrl,
+            serviceRoleKey: supabaseServiceRoleKey,
+            userId: user.id,
+            model,
+            inputTokens,
+            outputTokens,
+            costUsd: costUsdStream,
+            latencyMs: streamLatencyMs,
+            httpStatus: httpStatusStream,
+            errorMessage: null,
+          });
+
+          // ── Market research enhancement (PRD §8.3) ───────────────────────
+          let finalAnalysis: ISTAnalysis = parsedAnalysis as ISTAnalysis;
+          let marketResearchPerformed = false;
+
+          try {
+            await sendSse({ type: 'progress', step: 'enriching', message: 'Enhancing with market research…' });
+
+            const validatedAnalysis = parsedAnalysis as ISTAnalysis;
+            const industryContext = [
+              validatedAnalysis.marketOpportunity.commentary.slice(0, 250),
+              validatedAnalysis.companyOverview.commentary.slice(0, 250),
+            ]
+              .filter(Boolean)
+              .join('\n');
+
+            const researchResult = await performMarketResearch(
+              anthropicApiKey,
+              validatedAnalysis.companyName,
+              industryContext,
+            );
+
+            if (researchResult) {
+              finalAnalysis = injectMarketResearch(validatedAnalysis, researchResult.findings);
+              marketResearchPerformed = true;
+
+              await logApiUsage({
+                supabaseUrl,
+                serviceRoleKey: supabaseServiceRoleKey,
+                userId: user.id,
+                model: 'claude-sonnet-4-5-20250929',
+                inputTokens: researchResult.inputTokens,
+                outputTokens: researchResult.outputTokens,
+                costUsd: estimateCostUsd(researchResult.inputTokens, researchResult.outputTokens),
+                latencyMs: researchResult.latencyMs,
+                httpStatus: 200,
+                errorMessage: null,
+              });
+            }
+          } catch (researchErr) {
+            // Non-fatal — log and proceed with the original analysis.
+            console.error('Streaming: market research failed (non-fatal):', researchErr);
+          }
+
+          // ── Send final complete event ─────────────────────────────────────
+          const hasFlags = Object.keys(edgeCaseFlags).length > 0;
+          const responseData: Record<string, unknown> = {
+            ...finalAnalysis as Record<string, unknown>,
+            ...(hasFlags ? { _flags: edgeCaseFlags } : {}),
+            ...(marketResearchPerformed ? { _marketResearch: true } : {}),
+          };
+
+          await sendSse({ type: 'complete', data: responseData });
+          await sendSse({ type: 'done' });
+
+        } catch (err) {
+          console.error('Streaming analysis unexpected error:', err);
+          await sendSse({ type: 'error', message: 'Internal server error during analysis' });
+        } finally {
+          try {
+            await writer.close();
+          } catch {
+            // Already closed.
+          }
+        }
+      })();
+
+      return new Response(readable, {
+        headers: {
+          'Content-Type': 'text/event-stream',
+          'Cache-Control': 'no-cache, no-transform',
+          ...CORS_HEADERS,
+        },
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // 5b. NON-STREAMING MODE — existing synchronous behaviour
+    // ------------------------------------------------------------------
     let anthropicResponse: Response;
 
     try {
