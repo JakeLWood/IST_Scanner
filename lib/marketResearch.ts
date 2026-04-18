@@ -12,7 +12,7 @@
  *   MARKET_RESEARCH_SYSTEM_PROMPT  – static system prompt for the research call
  */
 
-import type { ISTAnalysis } from "../types/ist-analysis";
+import type { ISTAnalysis } from "../types/ist";
 
 // ---------------------------------------------------------------------------
 // System prompt for the market research Claude call
@@ -36,9 +36,8 @@ finding with specific data points wherever possible, and always note your source
  * Builds the user-turn prompt for the market research Claude call.
  *
  * @param companyName     - Name of the company being analyzed.
- * @param industryContext - Brief text excerpt from the initial analysis that
- *                         conveys the industry/sector (e.g. first 250 chars of
- *                         marketOpportunity.commentary + companyOverview.commentary).
+ * @param industryContext - Brief text excerpt conveying the industry/sector
+ *                         (e.g. snapshot.industry + first strength descriptions).
  * @param currentYear     - Four-digit year string (e.g. "2025").
  */
 export function buildMarketResearchPrompt(
@@ -156,74 +155,66 @@ export function parseMarketResearchResponse(text: string): MarketResearchFinding
 // ---------------------------------------------------------------------------
 
 /**
- * Injects web research findings into the relevant ISTAnalysis sections.
+ * Injects web research findings into the ISTAnalysis (PRD §5.4 schema).
  *
- * Per PRD §8.3:
- *   - Market size / CAGR + comparable transactions → `marketOpportunity`
- *     (the "Market Attractiveness" dimension)
- *   - Competitive landscape → `companyOverview`
- *     (the "Competitive Position" dimension)
+ * Per PRD §8.3, market research findings are surfaced as:
+ *   - An additional strength entry with category "[Web Research]", containing
+ *     the market-size, comparable-transactions, and competitive-landscape
+ *     findings in its supporting_data array.
+ *   - Additional caveats in data_quality.caveats for traceability.
  *
  * All injected text is prefixed with [Web Research] and includes source
- * citations.  The original commentary is preserved unchanged; findings are
- * appended with a blank-line separator.
+ * citations. The original analysis object is never mutated.
  *
  * @param analysis  - The validated ISTAnalysis produced by the initial call.
  * @param findings  - Structured findings returned by parseMarketResearchResponse.
- * @returns A new ISTAnalysis object with web research injected; the original
- *          object is never mutated.
+ * @returns A new ISTAnalysis object with web research injected.
  */
 export function injectMarketResearch(
   analysis: ISTAnalysis,
   findings: MarketResearchFindings,
 ): ISTAnalysis {
-  // Work on a shallow copy so the caller's object is not mutated.
   const enhanced: ISTAnalysis = { ...analysis };
 
-  // ── Market Opportunity section (Market Attractiveness) ───────────────────
-  const marketInserts: string[] = [];
+  const webResearchInserts: string[] = [];
 
   if (findings.marketAndGrowth) {
-    marketInserts.push(
+    webResearchInserts.push(
       `[Web Research] Market Size & Growth: ${findings.marketAndGrowth}`,
     );
   }
   if (findings.comparableTransactions) {
-    marketInserts.push(
+    webResearchInserts.push(
       `[Web Research] Comparable Transactions: ${findings.comparableTransactions}`,
     );
   }
-
-  if (marketInserts.length > 0) {
-    const sourcesNote = buildSourcesNote(findings.sources, 3);
-    enhanced.marketOpportunity = {
-      ...analysis.marketOpportunity,
-      commentary:
-        analysis.marketOpportunity.commentary +
-        "\n\n" +
-        marketInserts.join("\n\n") +
-        sourcesNote,
-      keyFindings: [
-        ...analysis.marketOpportunity.keyFindings,
-        ...marketInserts,
-      ],
-    };
+  if (findings.competitiveLandscape) {
+    webResearchInserts.push(
+      `[Web Research] Competitive Landscape: ${findings.competitiveLandscape}`,
+    );
   }
 
-  // ── Company Overview section (Competitive Position) ──────────────────────
-  if (findings.competitiveLandscape) {
-    const competitiveInsert = `[Web Research] Competitive Landscape: ${findings.competitiveLandscape}`;
-    const sourcesNote = buildSourcesNote(findings.sources, 2);
-    enhanced.companyOverview = {
-      ...analysis.companyOverview,
-      commentary:
-        analysis.companyOverview.commentary +
-        "\n\n" +
-        competitiveInsert +
-        sourcesNote,
-      keyFindings: [
-        ...analysis.companyOverview.keyFindings,
-        competitiveInsert,
+  if (webResearchInserts.length > 0) {
+    const sourcesNote = buildSourcesNote(findings.sources, 3);
+    // Append a new [Web Research] strength entry so the finding is surfaced
+    // prominently in the IC output without mutating existing strength entries.
+    enhanced.strengths = [
+      ...analysis.strengths,
+      {
+        category: "[Web Research]",
+        title: "Market Intelligence — Real-Time Research",
+        description:
+          "Independent market research supplementing the initial analysis of deal document data." +
+          (sourcesNote ? " " + sourcesNote : ""),
+        supporting_data: webResearchInserts,
+      },
+    ];
+    // Also surface the findings in data_quality.caveats for audit traceability.
+    enhanced.data_quality = {
+      ...analysis.data_quality,
+      caveats: [
+        ...analysis.data_quality.caveats,
+        ...webResearchInserts,
       ],
     };
   }
@@ -244,3 +235,4 @@ function buildSourcesNote(sources: string[], maxSources: number): string {
   const cited = sources.slice(0, maxSources).join("; ");
   return ` [Sources: ${cited}]`;
 }
+

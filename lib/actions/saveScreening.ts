@@ -17,8 +17,8 @@
 
 import { createHash } from "crypto";
 import { createClient } from "../supabase/server";
-import { scoreAnalysis, DEFAULT_WEIGHTS } from "../scoringEngine";
-import type { ISTAnalysis } from "../../types/ist-analysis";
+import { computeCompositeScore } from "../scoringEngine";
+import type { ISTAnalysis } from "../../types/ist";
 import type { ScreeningMetadata } from "../../types/ist";
 
 /**
@@ -45,30 +45,33 @@ export async function saveScreening(
   // ------------------------------------------------------------------
   // 1. Generate composite score and recommendation via the scoring engine
   // ------------------------------------------------------------------
-  const scoringResult = scoreAnalysis(analysis, { weights: DEFAULT_WEIGHTS });
-  const { compositeScore, recommendation, isDisqualified } = scoringResult;
+  const { compositeScore, recommendation } = computeCompositeScore(analysis.scores);
 
   // ------------------------------------------------------------------
   // 2. Resolve company name — prefer caller override over extracted name
   // ------------------------------------------------------------------
   const overrideName = metadata.dealNameOverride?.trim();
-  const companyName = overrideName ? overrideName : analysis.companyName;
+  const companyName = overrideName ? overrideName : analysis.company_name;
 
   // ------------------------------------------------------------------
   // 3. Persist the screening record
   // ------------------------------------------------------------------
+  const isDisqualified =
+    analysis.recommendation.disqualifying_factors !== null &&
+    (analysis.recommendation.disqualifying_factors?.length ?? 0) > 0;
+
   const { data, error } = await supabase
     .from("screenings")
     .insert({
       user_id: userId,
       company_name: companyName,
-      deal_type: analysis.dealType,
+      deal_type: analysis.deal_type,
       deal_source: metadata.dealSource ?? null,
       composite_score: compositeScore,
       recommendation,
       raw_document_text: rawText,
       ai_response_json: analysis,
-      scores_json: scoringResult,
+      scores_json: analysis.scores,
       notes: metadata.notes ?? null,
       is_disqualified: isDisqualified,
       disqualifier_ids: [],

@@ -2,7 +2,17 @@
  * Traditional PE Track – Claude Prompts
  *
  * PRD Section 5.1: System prompt that establishes Claude's persona and role.
- * PRD Section 5.2: Analysis prompt that drives the full 7-section IST output.
+ * PRD Section 5.2: Analysis prompt that drives the full IST output in the
+ *                  canonical PRD §5.4 schema (types/ist.ts ISTAnalysis).
+ *
+ * QA Benchmark alignment (PRD §9.2):
+ *   1. snapshot  — all §4.2.1 fields, including 5 financial metrics,
+ *                  growth rate, employee_count, location, deal_source
+ *   2. strengths — 3–6 entries, each with specific supporting_data[]
+ *   3. risks     — severity High|Medium|Low, mitigation, evidence per entry
+ *   4. value_creation — near_term + medium_term with EBITDA impact ranges
+ *   5. recommendation.verdict — PROCEED | FURTHER_REVIEW | PASS with
+ *                               suggested LOI terms when PROCEED
  *
  * Exports:
  *   TRADITIONAL_PE_SYSTEM_PROMPT        – static string for the "system" role
@@ -10,7 +20,7 @@
  *   TraditionalPEAnalysisResult         – convenience re-export of ISTAnalysis for this track
  */
 
-import type { ISTAnalysis } from "../../types/ist-analysis";
+import type { ISTAnalysis } from "../../types/ist";
 
 // Re-export so callers have a single import point
 export type TraditionalPEAnalysisResult = ISTAnalysis;
@@ -72,6 +82,18 @@ explanatory text, markdown fences, or commentary outside the JSON.
 /**
  * Builds the user-role prompt for a Traditional PE IST analysis.
  *
+ * The returned JSON MUST conform to the canonical PRD §5.4 ISTAnalysis schema
+ * (types/ist.ts) so that the five automated quality benchmarks (PRD §9.2) pass:
+ *   1. snapshot     — all §4.2.1 fields including financial metrics, growth rate,
+ *                     employee_count, location, and deal_source
+ *   2. strengths    — 3–6 entries with category, title, description, and
+ *                     supporting_data[] containing specific numeric data points
+ *   3. risks        — severity (High|Medium|Low), mitigation, evidence per entry
+ *   4. value_creation — near_term + medium_term initiatives with ebitda_impact_low
+ *                     and ebitda_impact_high; exit_positioning items are optional
+ *   5. recommendation.verdict — "PROCEED" | "FURTHER_REVIEW" | "PASS" with
+ *                     suggested_loi_terms when verdict is PROCEED
+ *
  * @param extractedText - Raw text extracted from the deal documents
  *                        (CIM, management presentation, financials, etc.)
  * @param analysisDate  - ISO 8601 date string (YYYY-MM-DD) for when the analysis
@@ -82,108 +104,188 @@ export function buildTraditionalPEAnalysisPrompt(
   extractedText: string,
   analysisDate: string = new Date().toISOString().slice(0, 10),
 ): string {
+  const generatedAt = `${analysisDate}T${new Date().toISOString().slice(11)}`;
   return `\
 Perform a complete Investment Screening Tool (IST) analysis on the following deal \
-materials and return a single JSON object that EXACTLY matches the ISTAnalysis \
-TypeScript interface shown below. Do not include anything outside the JSON object.
+materials and return a single JSON object that EXACTLY matches the ISTAnalysis schema \
+shown below. Do not include anything outside the JSON object.
 
-=== ISTAnalysis Interface (for reference) ===
+CRITICAL OUTPUT REQUIREMENTS (PRD §9.2 quality benchmarks):
+1. snapshot — populate ALL fourteen fields; use null only when the document truly \
+   does not provide the data. Never omit a field entirely.
+2. strengths — identify 3–6 investment strengths. Every strength MUST have at least \
+   one supporting_data entry that contains a specific number, percentage, currency \
+   figure, or named entity (company name, product name). Generic claims without data \
+   points ("strong market position", "good growth") will fail the quality check.
+3. risks — identify every material risk PE professionals would care about. Each risk \
+   MUST have: severity ("High", "Medium", or "Low"), mitigation text, and evidence \
+   text grounded in the document.
+4. value_creation — both near_term (12–24 month) and medium_term (24–36 month) arrays \
+   MUST be non-empty. Every initiative in these arrays MUST have numeric \
+   ebitda_impact_low AND ebitda_impact_high values. Exit positioning items may have \
+   null EBITDA ranges.
+5. recommendation.verdict — use "PROCEED", "FURTHER_REVIEW", or "PASS" (all caps). \
+   When verdict is "PROCEED", populate suggested_loi_terms with the proposed \
+   valuation range and deal structure. Include 3–5 concise reasoning bullets.
+
+=== ISTAnalysis JSON Schema ===
 {
-  "companyName":    string,          // company / deal name found in the materials
-  "analysisDate":   "${analysisDate}",
-  "dealType":       "traditional_pe",
+  "schema_version": "1.0",
+  "generated_at": "<ISO-8601 timestamp, e.g. ${generatedAt}>",
+  "company_name": "<company name from the materials>",
+  "deal_type": "traditional_pe",
 
-  // --- 7 IST Sections ---
-  // Each section contains: sectionName (string), score (1–10 integer),
-  //   commentary (string), keyFindings (string[])
+  // ── SECTION I: Investment Snapshot ──────────────────────────────────────
+  // Quick-reference header. All 14 fields are REQUIRED in the output object.
+  // Use null (not omit) when data is unavailable. Revenue + EBITDA must not
+  // both be null (flag as Insufficient Data if they are).
+  "snapshot": {
+    "company_name": "<company name>",
+    "industry": "<sector / industry, e.g. 'Aerospace & Industrial Tooling'>",
+    "location": "<HQ city and state, e.g. 'Westlake Village, CA'>",
+    "transaction_type": "<e.g. '100% Acquisition (Founder Retirement)'>",
+    "revenue": <annual revenue in USD as a number, or null>,
+    "ebitda": <adj. EBITDA in USD as a number, or null>,
+    "ebitda_margin": <EBITDA/Revenue as a percentage number, e.g. 10.5, or null>,
+    "revenue_growth_rate": <annual revenue CAGR as a percentage number, e.g. 14, or null>,
+    "asking_price": <asking price / valuation in USD as a number, or null>,
+    "ev_ebitda_multiple": <EV/EBITDA multiple as a number, e.g. 5.25, or null>,
+    "employee_count": <number of FTEs as a number, or null>,
+    "year_founded": <four-digit year as a number, or null>,
+    "deal_source": "<e.g. 'Proprietary', 'Investment Bank', 'Broker'>",
+    "customer_concentration_pct": <largest single customer as % of revenue, or null>
+  },
+
+  // ── SECTION II: Investment Strengths ────────────────────────────────────
+  // 3–6 entries. Each supporting_data item MUST contain a specific number,
+  // percentage, currency figure, or named entity. No generic claims.
+  // Categories to consider: Market Position, Business Model, Financial Profile,
+  // Market Tailwinds, IP & Differentiation, Customer Quality, Growth Trajectory
+  "strengths": [
+    {
+      "category": "<e.g. 'Market Position'>",
+      "title": "<short, specific title, e.g. '40+ Year Defensible Aerospace Niche'>",
+      "description": "<2–3 sentence explanation of why this is a genuine strength>",
+      "supporting_data": [
+        "<specific data point with number/entity, e.g. '40+ year relationships with Boeing and Lockheed Martin'>",
+        "<second data point, e.g. 'Largest customer = 7% of revenue (low concentration)'>",
+        "..."
+      ]
+    }
+  ],
+
+  // ── SECTION III: Risk Assessment ────────────────────────────────────────
+  // Identify ALL material risks a PE professional would consider.
+  // Common categories: founder/key-person dependency, customer concentration,
+  // supplier concentration, technology obsolescence, regulatory, cyclicality,
+  // competitive threats, working capital, lease/facility, integration complexity.
+  // severity MUST be one of: "High", "Medium", "Low" (exactly as written).
+  "risks": [
+    {
+      "risk": "<concise risk description, e.g. 'Founder / key-person dependency'>",
+      "severity": "<'High' | 'Medium' | 'Low'>",
+      "mitigation": "<specific mitigant, e.g. 'VP with 15 years tenure manages day-to-day operations'>",
+      "evidence": "<supporting evidence from the document, e.g. 'Document confirms VP tenure and 12-month founder advisory period'>"
+    }
+  ],
+
+  // ── SECTION IV: Value Creation Thesis ───────────────────────────────────
+  // Both near_term and medium_term MUST be non-empty arrays.
+  // Every near_term and medium_term initiative MUST have numeric EBITDA impact
+  // ranges. Total near_term + medium_term upside should sum to a meaningful
+  // percentage of entry EBITDA (aim for 30%+ per PRD §3.2).
+  "value_creation": {
+    "near_term": [
+      {
+        "initiative": "<specific initiative description>",
+        "ebitda_impact_low": <low-end USD estimate as a number — REQUIRED>,
+        "ebitda_impact_high": <high-end USD estimate as a number — REQUIRED>,
+        "investment_required": <capex/opex required in USD, or null if unknown>,
+        "timeline": "<e.g. 'Q1–Q4 Year 1'>"
+      }
+    ],
+    "medium_term": [
+      {
+        "initiative": "<specific initiative description>",
+        "ebitda_impact_low": <low-end USD estimate as a number — REQUIRED>,
+        "ebitda_impact_high": <high-end USD estimate as a number — REQUIRED>,
+        "investment_required": <capex/opex required in USD, or null if unknown>,
+        "timeline": "<e.g. 'Year 2–3'>"
+      }
+    ],
+    "exit_positioning": [
+      {
+        "initiative": "<e.g. 'Strategic sale to aerospace OEM distributor'>",
+        "ebitda_impact_low": null,
+        "ebitda_impact_high": null,
+        "investment_required": null,
+        "timeline": "<e.g. 'Year 4–5'>"
+      }
+    ]
+  },
+
+  // ── SECTION V: Dimension Scores ─────────────────────────────────────────
+  // Score each dimension 1–10 using the calibration below.
+  // Include a 2–3 sentence justification per dimension.
+  // Dimensions for Traditional PE:
+  //   market_attractiveness, competitive_position, management_team,
+  //   customer_quality, value_creation_potential, risk_profile,
+  //   financial_quality, valuation_attractiveness
   //
   // Scoring calibration:
-  //   7–10 = Strong   — a genuine positive supporting the investment thesis
-  //   5–6  = Adequate — meets baseline expectations; no material concerns
-  //   3–4  = Concerning — warrants significant further diligence
-  //   1–2  = Deal-breaking — fundamental flaw that makes investment inadvisable
+  //   7–10 = Strong   (genuine positive supporting the thesis)
+  //   5–6  = Adequate (meets baseline; no material concerns)
+  //   3–4  = Concerning (significant diligence needed)
+  //   1–2  = Deal-breaking (fundamental flaw)
+  "scores": [
+    {
+      "dimension": "<e.g. 'market_attractiveness'>",
+      "score": <1–10 integer, or null if insufficient data>,
+      "justification": "<2–3 sentence explanation>",
+      "data_gaps": ["<field or document needed if score is limited by missing data>"]
+    }
+  ],
 
-  "companyOverview": {
-    "sectionName": "Company Overview",
-    "score": <1–10>,
-    "commentary": "<Assess business model clarity, market positioning, competitive moat, \
-revenue quality, customer concentration, and operational track record. Note any \
-structural features (e.g., recurring revenue, switching costs) that affect \
-investment appeal.>",
-    "keyFindings": ["<finding 1>", "..."]
+  // ── SECTION VI: Recommendation ──────────────────────────────────────────
+  // verdict MUST be: "PROCEED", "FURTHER_REVIEW", or "PASS" (all caps).
+  // Include 3–5 reasoning bullets regardless of verdict.
+  // Populate suggested_loi_terms ONLY when verdict === "PROCEED".
+  // Populate disqualifying_factors ONLY when verdict === "PASS".
+  "recommendation": {
+    "verdict": "<'PROCEED' | 'FURTHER_REVIEW' | 'PASS'>",
+    "reasoning": [
+      "<bullet 1 — concise justification>",
+      "<bullet 2>",
+      "<bullet 3>"
+    ],
+    "suggested_loi_terms": "<e.g. '$5.0–5.5M (4.9–5.4x TTM Adj. EBITDA); 80% cash / 20% seller note' — null if not PROCEED>",
+    "disqualifying_factors": null
   },
 
-  "marketOpportunity": {
-    "sectionName": "Market Opportunity",
-    "score": <1–10>,
-    "commentary": "<Evaluate total addressable market size, secular growth tailwinds, \
-market fragmentation (consolidation opportunity), and competitive intensity. Identify \
-whether the macro environment favors or pressures the business over a typical 5-year \
-hold period.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
+  // ── SECTION VII: Key Questions ───────────────────────────────────────────
+  // 5–10 targeted questions for the deal team to ask management or the
+  // intermediary. Each question MUST include a 'validates' field that
+  // names the specific risk, assumption, or thesis element it tests.
+  "key_questions": [
+    {
+      "question": "<specific, non-obvious question>",
+      "validates": "<e.g. 'Founder dependency risk (Medium severity)'>"
+    }
+  ],
 
-  "financialProfile": {
-    "sectionName": "Financial Profile",
-    "score": <1–10>,
-    "commentary": "<Analyze LTM and 3-year historical revenue, EBITDA, and margin \
-trajectory. Assess revenue quality (recurring vs. transactional), free cash flow \
-conversion, working capital dynamics, and capex requirements. Evaluate management \
-projections for credibility and key assumptions.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  "managementTeam": {
-    "sectionName": "Management Team",
-    "score": <1–10>,
-    "commentary": "<Evaluate the depth and quality of the leadership team, including CEO \
-and C-suite track records, industry experience, and equity rollover / alignment. \
-Identify any key-person risk or talent gaps that would require post-close remediation.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  "investmentThesis": {
-    "sectionName": "Investment Thesis",
-    "score": <1–10>,
-    "commentary": "<Identify and evaluate the primary value creation levers: organic \
-growth acceleration, margin improvement, bolt-on M&A, and/or multiple expansion. \
-Assess the credibility and achievability of the sponsor's return thesis. Note any \
-misalignment between thesis and observed business fundamentals.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  "riskAssessment": {
-    "sectionName": "Risk Assessment",
-    "score": <1–10>,
-    "commentary": "<Identify the top risks (strategic, operational, financial, \
-regulatory, macro) and assess the adequacy of mitigants. Higher scores reflect \
-manageable risk profiles with strong mitigants; lower scores reflect unmitigated or \
-binary risks. Flag any deal-breaking risks explicitly.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  "dealDynamics": {
-    "sectionName": "Deal Dynamics",
-    "score": <1–10>,
-    "commentary": "<Assess entry valuation (EV/EBITDA multiple vs. comparable \
-transactions and public comps), proposed capital structure and leverage levels, \
-anticipated deal process (competitive vs. proprietary), and implied returns (target \
-MOIC and IRR). Note any structural features (earnouts, rollover equity, reps & \
-warranties) that affect deal attractiveness.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  // --- Aggregate outputs ---
-  "overallScore":      number,   // simple average of all 7 section scores, 1 decimal
-  "recommendation":    "proceed" | "conditional_proceed" | "pass",
-  "executiveSummary":  string    // 3–5 sentence summary suitable for IC memo cover page
+  // ── Data Quality ─────────────────────────────────────────────────────────
+  "data_quality": {
+    "completeness_pct": <0–100 integer>,
+    "missing_critical_fields": ["<field name if absent>"],
+    "caveats": ["<free-text caveat about data limitations>"]
+  }
 }
-=== End of Interface ===
+=== End of Schema ===
 
 === Deal Materials ===
 ${extractedText}
 === End of Deal Materials ===
 
-Return ONLY the JSON object. No markdown, no prose, no code fences.
+Return ONLY the JSON object. No markdown fences, no prose, no code blocks.
 `;
 }

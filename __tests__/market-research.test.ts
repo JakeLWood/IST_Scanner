@@ -4,11 +4,12 @@
  * Covers:
  *   - buildMarketResearchPrompt   — prompt content and search query injection
  *   - parseMarketResearchResponse — structured section extraction
- *   - injectMarketResearch        — injection into ISTAnalysis with [Web Research] tags
+ *   - injectMarketResearch        — injection into ISTAnalysis (PRD §5.4 schema)
+ *                                   with [Web Research] strength entries
  */
 
 import { describe, it, expect } from "vitest";
-import type { ISTAnalysis } from "@/types/ist-analysis";
+import type { ISTAnalysis } from "@/types/ist";
 import {
   buildMarketResearchPrompt,
   parseMarketResearchResponse,
@@ -17,61 +18,168 @@ import {
 } from "@/lib/marketResearch";
 
 // ---------------------------------------------------------------------------
-// Shared test fixtures
+// Shared test fixtures — use PRD §5.4 ISTAnalysis format (types/ist.ts)
 // ---------------------------------------------------------------------------
 
 const MOCK_ANALYSIS: ISTAnalysis = {
-  companyName: "Apex Industrial Holdings",
-  analysisDate: "2026-04-17",
-  dealType: "traditional_pe",
-  companyOverview: {
-    sectionName: "Company Overview",
-    score: 7,
-    commentary:
-      "Apex Industrial Holdings manufactures precision aerospace fasteners with strong switching costs.",
-    keyFindings: ["35-year operating history", "$90M revenue"],
+  schema_version: "1.0",
+  generated_at: "2026-04-17T00:00:00.000Z",
+  company_name: "Apex Industrial Holdings",
+  deal_type: "traditional_pe",
+  snapshot: {
+    company_name: "Apex Industrial Holdings",
+    industry: "Aerospace Fastener Manufacturing",
+    location: "Los Angeles, CA",
+    transaction_type: "100% Acquisition",
+    revenue: 90000000,
+    ebitda: 16200000,
+    ebitda_margin: 18,
+    revenue_growth_rate: 8,
+    asking_price: 145800000,
+    ev_ebitda_multiple: 9,
+    employee_count: 350,
+    year_founded: 1991,
+    deal_source: "Investment Bank",
+    customer_concentration_pct: 45,
   },
-  marketOpportunity: {
-    sectionName: "Market Opportunity",
-    score: 7,
-    commentary:
-      "The global aerospace fastener market is estimated at $12B with favorable secular tailwinds.",
-    keyFindings: ["$12B TAM", "Fragmented market"],
+  strengths: [
+    {
+      category: "Market Position",
+      title: "35-Year Defensible Aerospace Niche",
+      description:
+        "Apex has supplied precision fasteners to Boeing, Airbus, and Lockheed for 35 years.",
+      supporting_data: [
+        "35-year operating history with FAA-certified production lines",
+        "$90M TTM revenue",
+      ],
+    },
+    {
+      category: "Financial Profile",
+      title: "Above-Peer EBITDA Margins",
+      description: "Margins of 18% significantly exceed the peer average of 14%.",
+      supporting_data: ["18% EBITDA margin vs. 14% peer average"],
+    },
+  ],
+  risks: [
+    {
+      risk: "Customer concentration",
+      severity: "Medium",
+      mitigation: "Long-term OEM supply agreements reduce churn risk",
+      evidence: "Top 3 customers = 45% of revenue per CIM data",
+    },
+  ],
+  value_creation: {
+    near_term: [
+      {
+        initiative: "Expand into defense MRO",
+        ebitda_impact_low: 1500000,
+        ebitda_impact_high: 2500000,
+        investment_required: 300000,
+        timeline: "Year 1",
+      },
+    ],
+    medium_term: [
+      {
+        initiative: "Bolt-on acquisition of regional competitor",
+        ebitda_impact_low: 2000000,
+        ebitda_impact_high: 4000000,
+        investment_required: null,
+        timeline: "Year 2–3",
+      },
+    ],
+    exit_positioning: [
+      {
+        initiative: "Strategic sale to TransDigm or HEICO",
+        ebitda_impact_low: null,
+        ebitda_impact_high: null,
+        investment_required: null,
+        timeline: "Year 4–5",
+      },
+    ],
   },
-  financialProfile: {
-    sectionName: "Financial Profile",
-    score: 6,
-    commentary: "EBITDA margins of 18% are in line with peers.",
-    keyFindings: ["18% EBITDA margin"],
+  scores: [
+    {
+      dimension: "market_attractiveness",
+      score: 7,
+      justification:
+        "The global aerospace fastener market is $12B with favorable secular tailwinds from commercial aviation recovery.",
+      data_gaps: [],
+    },
+    {
+      dimension: "competitive_position",
+      score: 7,
+      justification:
+        "Strong switching costs via FAA certifications and 35-year OEM relationships.",
+      data_gaps: [],
+    },
+    {
+      dimension: "financial_quality",
+      score: 6,
+      justification: "EBITDA margins of 18% are in line with peers.",
+      data_gaps: [],
+    },
+    {
+      dimension: "management_team",
+      score: 7,
+      justification: "CEO has 22-year tenure; leadership team is experienced.",
+      data_gaps: [],
+    },
+    {
+      dimension: "value_creation_potential",
+      score: 7,
+      justification: "Clear buy-and-build platform opportunity in fragmented market.",
+      data_gaps: [],
+    },
+    {
+      dimension: "risk_profile",
+      score: 6,
+      justification: "Customer concentration risk manageable via long-term contracts.",
+      data_gaps: [],
+    },
+    {
+      dimension: "valuation_attractiveness",
+      score: 6,
+      justification: "Entry at 9x EV/EBITDA is in line with comparable transactions.",
+      data_gaps: [],
+    },
+  ],
+  recommendation: {
+    verdict: "FURTHER_REVIEW",
+    reasoning: [
+      "Strong aerospace niche with defensible market position",
+      "Customer concentration warrants further diligence on contract terms",
+      "Valuation is fair but not compelling relative to peers",
+    ],
+    suggested_loi_terms: null,
+    disqualifying_factors: null,
   },
-  managementTeam: {
-    sectionName: "Management Team",
-    score: 7,
-    commentary: "Experienced leadership team with 20+ years in aerospace.",
-    keyFindings: ["CEO 22-year tenure"],
+  key_questions: [
+    {
+      question: "What is the weighted average remaining contract length for the top 3 customers?",
+      validates: "Customer concentration risk (Medium severity)",
+    },
+    {
+      question: "How many qualified backup suppliers exist for proprietary alloys?",
+      validates: "Supply chain risk",
+    },
+    {
+      question: "What is the capex requirement to expand defense MRO capacity?",
+      validates: "Value creation — defense MRO expansion",
+    },
+    {
+      question: "Has an FTO analysis been conducted for key patents?",
+      validates: "IP defensibility",
+    },
+    {
+      question: "What is the CEO succession plan post-acquisition?",
+      validates: "Key-person dependency risk",
+    },
+  ],
+  data_quality: {
+    completeness_pct: 80,
+    missing_critical_fields: ["backlog_size", "capex_intensity"],
+    caveats: ["Financials are management-prepared; QoE not yet completed"],
   },
-  investmentThesis: {
-    sectionName: "Investment Thesis",
-    score: 7,
-    commentary: "Buy-and-build platform in fragmented aerospace MRO sector.",
-    keyFindings: ["Platform opportunity"],
-  },
-  riskAssessment: {
-    sectionName: "Risk Assessment",
-    score: 6,
-    commentary: "Customer concentration risk with top 3 customers at 45% of revenue.",
-    keyFindings: ["45% customer concentration"],
-  },
-  dealDynamics: {
-    sectionName: "Deal Dynamics",
-    score: 6,
-    commentary: "Entry at 9x EV/EBITDA is in line with comparable transactions.",
-    keyFindings: ["9x EV/EBITDA entry multiple"],
-  },
-  overallScore: 6.6,
-  recommendation: "conditional_proceed",
-  executiveSummary:
-    "Apex Industrial Holdings is a solid aerospace fastener manufacturer with a clear buy-and-build thesis.",
 };
 
 const FULL_RESEARCH_TEXT = `\
@@ -268,102 +376,103 @@ describe("injectMarketResearch", () => {
   const fullFindings = parseMarketResearchResponse(FULL_RESEARCH_TEXT);
 
   it("does not mutate the original analysis object", () => {
-    const originalCommentary = MOCK_ANALYSIS.marketOpportunity.commentary;
+    const originalStrengthCount = MOCK_ANALYSIS.strengths.length;
     injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(MOCK_ANALYSIS.marketOpportunity.commentary).toBe(originalCommentary);
+    expect(MOCK_ANALYSIS.strengths.length).toBe(originalStrengthCount);
   });
 
-  it("appends [Web Research] Market Size & Growth to marketOpportunity.commentary", () => {
+  it("adds a [Web Research] strength entry to the strengths array", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.marketOpportunity.commentary).toContain(
-      "[Web Research] Market Size & Growth:",
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
     );
-    expect(enhanced.marketOpportunity.commentary).toContain("$12.4B");
+    expect(webStrength).toBeDefined();
   });
 
-  it("appends [Web Research] Comparable Transactions to marketOpportunity.commentary", () => {
+  it("includes Market Size & Growth finding in [Web Research] supporting_data", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.marketOpportunity.commentary).toContain(
-      "[Web Research] Comparable Transactions:",
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
     );
-    expect(enhanced.marketOpportunity.commentary).toContain("9–11x EV/EBITDA");
-  });
-
-  it("preserves the original marketOpportunity commentary text", () => {
-    const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.marketOpportunity.commentary).toContain(
-      MOCK_ANALYSIS.marketOpportunity.commentary,
+    const hasMktGrowth = webStrength?.supporting_data.some((d) =>
+      d.includes("[Web Research] Market Size & Growth:") && d.includes("$12.4B"),
     );
+    expect(hasMktGrowth).toBe(true);
   });
 
-  it("adds web research key findings to marketOpportunity.keyFindings", () => {
+  it("includes Comparable Transactions finding in [Web Research] supporting_data", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    const webFindings = enhanced.marketOpportunity.keyFindings.filter((f) =>
-      f.startsWith("[Web Research]"),
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
     );
-    expect(webFindings.length).toBeGreaterThanOrEqual(1);
+    const hasTransactions = webStrength?.supporting_data.some((d) =>
+      d.includes("[Web Research] Comparable Transactions:") &&
+      d.includes("9–11x EV/EBITDA"),
+    );
+    expect(hasTransactions).toBe(true);
   });
 
-  it("preserves the original marketOpportunity.keyFindings entries", () => {
+  it("includes Competitive Landscape finding in [Web Research] supporting_data", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    for (const original of MOCK_ANALYSIS.marketOpportunity.keyFindings) {
-      expect(enhanced.marketOpportunity.keyFindings).toContain(original);
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
+    );
+    const hasCompetitive = webStrength?.supporting_data.some((d) =>
+      d.includes("[Web Research] Competitive Landscape:") &&
+      d.includes("Precision Castparts"),
+    );
+    expect(hasCompetitive).toBe(true);
+  });
+
+  it("preserves all original strengths entries", () => {
+    const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
+    for (const original of MOCK_ANALYSIS.strengths) {
+      expect(
+        enhanced.strengths.some((s) => s.title === original.title),
+      ).toBe(true);
     }
   });
 
-  it("appends [Web Research] Competitive Landscape to companyOverview.commentary", () => {
+  it("includes source citations in the [Web Research] strength description", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.companyOverview.commentary).toContain(
-      "[Web Research] Competitive Landscape:",
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
     );
-    expect(enhanced.companyOverview.commentary).toContain("Precision Castparts");
+    expect(webStrength?.description).toContain("[Sources:");
   });
 
-  it("preserves the original companyOverview commentary text", () => {
+  it("appends web research findings to data_quality.caveats", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.companyOverview.commentary).toContain(
-      MOCK_ANALYSIS.companyOverview.commentary,
+    const hasCaveat = enhanced.data_quality.caveats.some((c) =>
+      c.includes("[Web Research]"),
     );
+    expect(hasCaveat).toBe(true);
   });
 
-  it("adds competitive landscape finding to companyOverview.keyFindings", () => {
+  it("preserves original data_quality.caveats", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    const webFindings = enhanced.companyOverview.keyFindings.filter((f) =>
-      f.startsWith("[Web Research]"),
-    );
-    expect(webFindings.length).toBeGreaterThanOrEqual(1);
+    for (const caveat of MOCK_ANALYSIS.data_quality.caveats) {
+      expect(enhanced.data_quality.caveats).toContain(caveat);
+    }
   });
 
-  it("includes source citations in the commentary", () => {
+  it("does not modify scores, recommendation, or snapshot", () => {
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    // Both sections should contain a Sources note
-    expect(enhanced.marketOpportunity.commentary).toContain("[Sources:");
-    expect(enhanced.companyOverview.commentary).toContain("[Sources:");
+    expect(enhanced.scores).toStrictEqual(MOCK_ANALYSIS.scores);
+    expect(enhanced.recommendation).toStrictEqual(MOCK_ANALYSIS.recommendation);
+    expect(enhanced.snapshot).toStrictEqual(MOCK_ANALYSIS.snapshot);
   });
 
-  it("does not modify unrelated sections (financialProfile, managementTeam, etc.)", () => {
-    const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.financialProfile).toStrictEqual(MOCK_ANALYSIS.financialProfile);
-    expect(enhanced.managementTeam).toStrictEqual(MOCK_ANALYSIS.managementTeam);
-    expect(enhanced.investmentThesis).toStrictEqual(MOCK_ANALYSIS.investmentThesis);
-    expect(enhanced.riskAssessment).toStrictEqual(MOCK_ANALYSIS.riskAssessment);
-    expect(enhanced.dealDynamics).toStrictEqual(MOCK_ANALYSIS.dealDynamics);
-  });
-
-  it("does not modify overallScore or recommendation", () => {
-    const enhanced = injectMarketResearch(MOCK_ANALYSIS, fullFindings);
-    expect(enhanced.overallScore).toBe(MOCK_ANALYSIS.overallScore);
-    expect(enhanced.recommendation).toBe(MOCK_ANALYSIS.recommendation);
-  });
-
-  it("handles empty findings gracefully — leaves sections unchanged", () => {
+  it("handles empty findings gracefully — leaves strengths unchanged", () => {
     const emptyFindings = parseMarketResearchResponse("No sections here.");
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, emptyFindings);
-    expect(enhanced.marketOpportunity).toStrictEqual(MOCK_ANALYSIS.marketOpportunity);
-    expect(enhanced.companyOverview).toStrictEqual(MOCK_ANALYSIS.companyOverview);
+    expect(enhanced.strengths).toStrictEqual(MOCK_ANALYSIS.strengths);
+    expect(enhanced.data_quality.caveats).toStrictEqual(
+      MOCK_ANALYSIS.data_quality.caveats,
+    );
   });
 
-  it("handles partial findings — only injects available data", () => {
+  it("handles partial findings — only injects available data into supporting_data", () => {
     const partialFindings = parseMarketResearchResponse(`\
 MARKET SIZE & GROWTH:
 Market is $5B growing at 4% CAGR.
@@ -372,22 +481,25 @@ SOURCES:
 • Source A`);
 
     const enhanced = injectMarketResearch(MOCK_ANALYSIS, partialFindings);
-
-    // marketOpportunity should be enhanced (market data injected)
-    expect(enhanced.marketOpportunity.commentary).toContain("[Web Research]");
-
-    // companyOverview should be unchanged (no competitive landscape data)
-    expect(enhanced.companyOverview).toStrictEqual(MOCK_ANALYSIS.companyOverview);
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
+    );
+    // Only market size entry should be present (no transactions or competitive)
+    expect(webStrength?.supporting_data).toHaveLength(1);
+    expect(webStrength?.supporting_data[0]).toContain("Market Size & Growth");
   });
 
-  it("works correctly for ip_technology deal type (all 7 sections present)", () => {
+  it("works correctly for ip_technology deal type", () => {
     const ipAnalysis: ISTAnalysis = {
       ...MOCK_ANALYSIS,
-      dealType: "ip_technology",
+      deal_type: "ip_technology",
     };
     const enhanced = injectMarketResearch(ipAnalysis, fullFindings);
-    expect(enhanced.dealType).toBe("ip_technology");
-    expect(enhanced.marketOpportunity.commentary).toContain("[Web Research]");
-    expect(enhanced.companyOverview.commentary).toContain("[Web Research]");
+    expect(enhanced.deal_type).toBe("ip_technology");
+    const webStrength = enhanced.strengths.find(
+      (s) => s.category === "[Web Research]",
+    );
+    expect(webStrength).toBeDefined();
   });
 });
+
