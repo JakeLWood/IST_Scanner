@@ -223,15 +223,25 @@ async function extractBestText(data: ResendInboundEmailData): Promise<string> {
 /**
  * Extracts the email address from a "Name <email>" formatted string,
  * or returns the raw string if it's already a plain email address.
+ * Uses simple string indexing rather than regex to avoid ReDoS on
+ * adversarial input.
  */
 function parseEmailAddress(raw: string): string {
-  const match = raw.match(/<([^>]+)>/);
-  return (match ? match[1] : raw).trim().toLowerCase();
+  const ltIdx = raw.indexOf("<");
+  const gtIdx = raw.indexOf(">", ltIdx);
+  if (ltIdx >= 0 && gtIdx > ltIdx) {
+    return raw.slice(ltIdx + 1, gtIdx).trim().toLowerCase();
+  }
+  return raw.trim().toLowerCase();
 }
 
 function parseSenderName(raw: string): string | null {
-  const match = raw.match(/^([^<]+)<[^>]+>/);
-  return match ? match[1].trim() : null;
+  const ltIdx = raw.indexOf("<");
+  if (ltIdx > 0) {
+    const name = raw.slice(0, ltIdx).trim();
+    return name || null;
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
