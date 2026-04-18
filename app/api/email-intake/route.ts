@@ -195,11 +195,18 @@ async function extractBestText(data: ResendInboundEmailData): Promise<string> {
     if (data.text?.trim()) {
       parts.push(data.text.trim());
     } else if (data.html?.trim()) {
-      // Strip HTML tags for a rough plain-text fallback
+      // Strip HTML tags with a safe, non-backtracking approach to avoid ReDoS.
+      // We split on `<`, discard the tag portion (up to `>`), and join the
+      // remaining text fragments. This is intentionally simple because the
+      // HTML body is only used as a last-resort fallback when there are no
+      // extractable attachments.
       const stripped = data.html
-        .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-        .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-        .replace(/<[^>]+>/g, " ")
+        .split("<")
+        .map((segment) => {
+          const gtIndex = segment.indexOf(">");
+          return gtIndex >= 0 ? segment.slice(gtIndex + 1) : segment;
+        })
+        .join(" ")
         .replace(/\s{2,}/g, " ")
         .trim();
       if (stripped) parts.push(stripped);
