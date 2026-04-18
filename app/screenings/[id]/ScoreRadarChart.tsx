@@ -65,6 +65,11 @@ function RadarTooltip({ active, payload }: TooltipProps<number, string>) {
   );
 }
 
+/** Height per bar (px) in the compact horizontal bar chart. */
+const BAR_HEIGHT = 36;
+/** Top + bottom margin (px) for the compact chart container. */
+const CHART_MARGIN = 20;
+
 function scoreBarColor(score: number): string {
   if (score >= 7) return "#22c55e"; // emerald-500
   if (score >= 5) return "#f59e0b"; // amber-500
@@ -78,7 +83,7 @@ function ScoreBarChart({
   data: RadarDataPoint[];
 }) {
   return (
-    <ResponsiveContainer width="100%" height={data.length * 36 + 20}>
+    <ResponsiveContainer width="100%" height={data.length * BAR_HEIGHT + CHART_MARGIN}>
       <BarChart
         data={data}
         layout="vertical"
