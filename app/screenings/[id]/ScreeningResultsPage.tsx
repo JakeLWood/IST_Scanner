@@ -7,6 +7,11 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 const ScoreRadarChart = lazy(() => import("./ScoreRadarChart"));
 import type { RadarDataPoint } from "./ScoreRadarChart";
 import { addToDealFlow } from "@/lib/actions/addToDealFlow";
+import {
+  updateActualOutcome,
+  ACTUAL_OUTCOME_LABELS,
+  type ActualOutcome,
+} from "@/lib/actions/updateActualOutcome";
 import ShareEmailModal from "./ShareEmailModal";
 import type {
   ISTAnalysis,
@@ -665,6 +670,7 @@ export interface ScreeningResultsPageProps {
   rawDocumentText?: string | null;
   dealSource?: string | null;
   userId?: string | null;
+  initialActualOutcome?: ActualOutcome | null;
 }
 
 export default function ScreeningResultsPage({
@@ -674,6 +680,7 @@ export default function ScreeningResultsPage({
   rawDocumentText,
   dealSource,
   userId,
+  initialActualOutcome,
 }: ScreeningResultsPageProps) {
   const [rawExpanded, setRawExpanded] = useState(false);
   const [pdfLoading, setPdfLoading] = useState(false);
@@ -684,6 +691,12 @@ export default function ScreeningResultsPage({
   const [dealFlowId, setDealFlowId] = useState<string | null>(null);
   const [dealFlowError, setDealFlowError] = useState<string | null>(null);
   const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+  const [actualOutcome, setActualOutcome] = useState<ActualOutcome | null>(
+    initialActualOutcome ?? null,
+  );
+  const [outcomeState, setOutcomeState] = useState<
+    "idle" | "saving" | "saved" | "error"
+  >("idle");
 
   const isMobile = useIsMobile();
 
@@ -758,6 +771,23 @@ export default function ScreeningResultsPage({
       setDealFlowState("error");
     }
   }, [analysis.companyName, analysis.dealType, dealSource, screeningId, userId]);
+
+  const handleOutcomeChange = useCallback(
+    async (value: ActualOutcome | "") => {
+      const newOutcome = value === "" ? null : value;
+      setActualOutcome(newOutcome);
+      setOutcomeState("saving");
+      try {
+        await updateActualOutcome(screeningId, newOutcome);
+        setOutcomeState("saved");
+        // Reset "Saved" indicator after 2 s
+        setTimeout(() => setOutcomeState("idle"), 2000);
+      } catch {
+        setOutcomeState("error");
+      }
+    },
+    [screeningId],
+  );
 
   const { compositeScore, recommendation, isDisqualified, disqualifierReason, dimensionScores } =
     scoringResult;
@@ -1109,6 +1139,57 @@ export default function ScreeningResultsPage({
             <span className="font-semibold">⚠ DealFlow: </span>
             {dealFlowError}
           </div>
+        )}
+
+        {/* ---------------------------------------------------------------- */}
+        {/* ACTUAL OUTCOME — decision tracking (PRD §8.4)                    */}
+        {/* Only shown when viewing a real (non-demo) screening              */}
+        {/* ---------------------------------------------------------------- */}
+        {screeningId !== "demo" && screeningId !== "demo-ip" && (
+          <section className="rounded-xl border border-slate-700 bg-slate-800/50 p-4">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-0.5">
+                  Actual Outcome
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Record what the firm actually did with this deal.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <select
+                  value={actualOutcome ?? ""}
+                  onChange={(e) =>
+                    handleOutcomeChange(e.target.value as ActualOutcome | "")
+                  }
+                  disabled={outcomeState === "saving"}
+                  className="text-xs bg-slate-700 border border-slate-600 text-slate-200 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 cursor-pointer"
+                  aria-label="Actual outcome"
+                >
+                  <option value="">— Not recorded —</option>
+                  {(
+                    Object.entries(ACTUAL_OUTCOME_LABELS) as [
+                      ActualOutcome,
+                      string,
+                    ][]
+                  ).map(([value, label]) => (
+                    <option key={value} value={value}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
+                {outcomeState === "saving" && (
+                  <span className="text-xs text-slate-400">Saving…</span>
+                )}
+                {outcomeState === "saved" && (
+                  <span className="text-xs text-emerald-400">✓ Saved</span>
+                )}
+                {outcomeState === "error" && (
+                  <span className="text-xs text-red-400">Save failed</span>
+                )}
+              </div>
+            </div>
+          </section>
         )}
 
         {/* Executive Summary */}

@@ -3,6 +3,7 @@ import type { ISTAnalysis } from "@/types/ist-analysis";
 import type { ScoringResult } from "@/lib/scoringEngine";
 import { DEFAULT_WEIGHTS, scoreAnalysis } from "@/lib/scoringEngine";
 import ScreeningResultsPage from "./ScreeningResultsPage";
+import type { ActualOutcome } from "@/lib/actions/updateActualOutcome";
 
 // ---------------------------------------------------------------------------
 // Demo data — used when Supabase env vars are not configured
@@ -302,6 +303,7 @@ type ScreeningRow = {
   raw_document_text: string | null;
   is_disqualified: boolean;
   deal_source: string | null;
+  actual_outcome: ActualOutcome | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -315,6 +317,7 @@ async function loadScreening(id: string): Promise<{
   rawDocumentText: string | null;
   dealSource: string | null;
   userId: string | null;
+  actualOutcome: ActualOutcome | null;
 } | null> {
   const hasSupabase =
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -334,7 +337,7 @@ async function loadScreening(id: string): Promise<{
     const { data, error } = await supabase
       .from("screenings")
       .select(
-        "id, company_name, composite_score, recommendation, ai_response_json, scores_json, raw_document_text, is_disqualified, deal_source"
+        "id, company_name, composite_score, recommendation, ai_response_json, scores_json, raw_document_text, is_disqualified, deal_source, actual_outcome"
       )
       .eq("id", id)
       .single<ScreeningRow>();
@@ -361,6 +364,7 @@ async function loadScreening(id: string): Promise<{
       rawDocumentText: data.raw_document_text,
       dealSource: data.deal_source,
       userId: user?.id ?? null,
+      actualOutcome: data.actual_outcome,
     };
   } catch {
     return null;
@@ -384,6 +388,7 @@ export default async function Page({
         rawDocumentText={live.rawDocumentText}
         dealSource={live.dealSource}
         userId={live.userId}
+        initialActualOutcome={live.actualOutcome}
       />
     );
   }
