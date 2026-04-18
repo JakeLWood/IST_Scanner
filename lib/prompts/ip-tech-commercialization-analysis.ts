@@ -22,7 +22,7 @@
  *   IPTechAnalysisResult                – convenience re-export of ISTAnalysis for this track
  */
 
-import type { ISTAnalysis } from "../../types/ist-analysis";
+import type { ISTAnalysis } from "../../types/ist";
 
 // Re-export so callers have a single import point
 export type IPTechAnalysisResult = ISTAnalysis;
@@ -104,179 +104,143 @@ explanatory text, markdown fences, or commentary outside the JSON.
  */
 export function buildIPTechAnalysisPrompt(
   extractedText: string,
-  analysisDate: string = new Date().toISOString().slice(0, 10),
+  // _analysisDate is accepted for API compatibility but generated_at uses
+  // the live clock for accuracy.
+  _analysisDate: string = new Date().toISOString().slice(0, 10),
 ): string {
+  const generatedAt = new Date().toISOString();
   return `\
 Perform a complete Investment Screening Tool (IST) analysis on the following IP / \
 Technology Commercialization deal materials and return a single JSON object that EXACTLY \
-matches the ISTAnalysis TypeScript interface shown below. Do not include anything outside \
-the JSON object.
+matches the ISTAnalysis schema shown below. Do not include anything outside the JSON object.
 
 This is an IP / Technology Commercialization track analysis. Catalyze's core thesis is \
 "orthogonal application": technology proven in one domain unlocks its greatest value \
 when applied to adjacent markets the original inventors did not target. Every section \
 must be evaluated through this lens in addition to the standard IST criteria.
 
-=== ISTAnalysis Interface (for reference) ===
+CRITICAL OUTPUT REQUIREMENTS (PRD §9.2 quality benchmarks — same rules as Traditional PE):
+1. snapshot — populate ALL fourteen fields; use null only when truly unavailable.
+2. strengths — 3–6 entries, each with supporting_data[] containing specific numbers, \
+   percentages, TRL ratings, patent counts, or named entities. No generic claims.
+3. risks — severity "High", "Medium", or "Low"; mitigation and evidence per entry.
+4. value_creation — both near_term and medium_term arrays MUST be non-empty with \
+   numeric ebitda_impact_low and ebitda_impact_high on every initiative.
+5. recommendation.verdict — "PROCEED", "FURTHER_REVIEW", or "PASS" (all caps).
+
+=== ISTAnalysis JSON Schema ===
 {
-  "companyName":    string,          // company / entity name found in the materials
-  "analysisDate":   "${analysisDate}",
-  "dealType":       "ip_technology",
+  "schema_version": "1.0",
+  "generated_at": "<ISO-8601 timestamp, e.g. ${generatedAt}>",
+  "company_name": "<company / entity name>",
+  "deal_type": "ip_technology",
 
-  // --- 7 IST Sections ---
-  // Each section contains: sectionName (string), score (1–10 integer),
-  //   commentary (string), keyFindings (string[])
-  //
-  // Scoring calibration:
-  //   7–10 = Strong   — a genuine positive supporting the investment thesis
-  //   5–6  = Adequate — meets baseline expectations; no material concerns
-  //   3–4  = Concerning — warrants significant further diligence
-  //   1–2  = Deal-breaking — fundamental flaw that makes investment inadvisable
-
-  "companyOverview": {
-    "sectionName": "Company Overview",
-    "score": <1–10>,
-    "commentary": "<Assess the core technology or IP asset: what problem it solves, \
-the underlying technical approach, and the current Technology Readiness Level (TRL 1–9 \
-per NASA / DoD definitions). Describe the original application domain and how the \
-technology was developed (university spin-out, corporate carve-out, independent \
-inventor, etc.). Evaluate the breadth and depth of the IP portfolio (patents granted / \
-pending, trade secrets, proprietary data sets, regulatory exclusivities). Note the \
-remaining patent life and any material IP ownership or assignment issues. Assess the \
-degree to which the technology is proven vs. still requiring development capital.>",
-    "keyFindings": ["<finding 1>", "..."]
+  "snapshot": {
+    "company_name": "<company name>",
+    "industry": "<sector / technology domain>",
+    "location": "<HQ city and state, or null>",
+    "transaction_type": "<e.g. 'IP License Acquisition', 'Equity Stake', 'Spin-out'>",
+    "revenue": <annual revenue in USD, or null if pre-revenue>,
+    "ebitda": <EBITDA in USD, or null>,
+    "ebitda_margin": <EBITDA/Revenue as percentage, or null>,
+    "revenue_growth_rate": <annual CAGR as percentage, or null>,
+    "asking_price": <valuation / asking price in USD, or null>,
+    "ev_ebitda_multiple": <EV/EBITDA multiple, or null>,
+    "employee_count": <FTEs as a number, or null>,
+    "year_founded": <four-digit year, or null>,
+    "deal_source": "<e.g. 'Proprietary', 'Investment Bank', 'University TTO'>",
+    "customer_concentration_pct": <largest customer as % of revenue, or null>
   },
 
-  "marketOpportunity": {
-    "sectionName": "Market Opportunity",
-    "score": <1–10>,
-    "commentary": "<Evaluate the total addressable market in the primary application \
-domain, including market size, growth rate, competitive dynamics, and the technology's \
-differentiated value proposition relative to incumbent solutions. \
-ORTHOGONAL APPLICATION ANALYSIS (Catalyze core thesis): Identify at least two to three \
-adjacent markets — outside the original application domain — where this technology could \
-be applied with limited additional development. For each orthogonal market: estimate the \
-addressable opportunity, describe the technical transferability (shared physics, shared \
-data structure, shared manufacturing process, etc.), assess the go-to-market pathway, \
-and score the opportunity's attractiveness. The presence of high-value orthogonal \
-applications with clear transferability should significantly raise this section's score; \
-their absence or low viability should lower it.>",
-    "keyFindings": ["<finding 1>", "..."]
+  "strengths": [
+    {
+      "category": "<e.g. 'IP Strength', 'Technology Readiness', 'Market Position'>",
+      "title": "<specific title with TRL or patent count if available>",
+      "description": "<2–3 sentences explaining the strength>",
+      "supporting_data": [
+        "<specific data point with number/TRL/patent count/entity>",
+        "..."
+      ]
+    }
+  ],
+
+  "risks": [
+    {
+      "risk": "<concise risk, e.g. 'IP invalidation risk — competing patent filing by [company]'>",
+      "severity": "<'High' | 'Medium' | 'Low'>",
+      "mitigation": "<specific mitigant grounded in the document>",
+      "evidence": "<document-grounded evidence for both the risk and the mitigant>"
+    }
+  ],
+
+  "value_creation": {
+    "near_term": [
+      {
+        "initiative": "<e.g. 'Phase 1 licensing deal with lead aerospace customer'>",
+        "ebitda_impact_low": <USD number — REQUIRED>,
+        "ebitda_impact_high": <USD number — REQUIRED>,
+        "investment_required": <USD number or null>,
+        "timeline": "<e.g. 'Q1–Q3 Year 1'>"
+      }
+    ],
+    "medium_term": [
+      {
+        "initiative": "<e.g. 'Orthogonal application: defense market licensing'>",
+        "ebitda_impact_low": <USD number — REQUIRED>,
+        "ebitda_impact_high": <USD number — REQUIRED>,
+        "investment_required": <USD number or null>,
+        "timeline": "<e.g. 'Year 2–3'>"
+      }
+    ],
+    "exit_positioning": [
+      {
+        "initiative": "<e.g. 'Strategic sale to tier-1 aerospace prime'>",
+        "ebitda_impact_low": null,
+        "ebitda_impact_high": null,
+        "investment_required": null,
+        "timeline": "<e.g. 'Year 4–5'>"
+      }
+    ]
   },
 
-  "financialProfile": {
-    "sectionName": "Financial Profile",
-    "score": <1–10>,
-    "commentary": "<Assess the current financial state of the entity and the projected \
-commercialization economics. Evaluate: existing revenue (product sales, licensing \
-royalties, government grants, milestone payments); projected revenue ramp and key \
-assumptions; cost structure and burn rate if pre-revenue; gross margin profile for \
-each commercialization pathway (licensing typically 80–95% gross margin vs. direct \
-product 40–70%); capital requirements to reach each TRL milestone and first commercial \
-revenue; and exit valuation benchmarks (IP-focused M&A comparables, technology \
-licensing multiples, or strategic acquirer premiums). Flag any financial projections \
-that appear overly optimistic relative to comparable technology commercialization \
-timelines.>",
-    "keyFindings": ["<finding 1>", "..."]
+  // Dimensions for IP / Technology track:
+  //   technology_readiness, ip_strength_defensibility, commercialization_pathway,
+  //   orthogonal_application_potential, market_attractiveness, management_team, risk_profile
+  "scores": [
+    {
+      "dimension": "<dimension key>",
+      "score": <1–10 integer or null>,
+      "justification": "<2–3 sentences — for technology_readiness cite the TRL level>",
+      "data_gaps": ["<missing data that limits the score>"]
+    }
+  ],
+
+  "recommendation": {
+    "verdict": "<'PROCEED' | 'FURTHER_REVIEW' | 'PASS'>",
+    "reasoning": ["<bullet 1>", "<bullet 2>", "<bullet 3>"],
+    "suggested_loi_terms": "<proposed terms or null if not PROCEED>",
+    "disqualifying_factors": null
   },
 
-  "managementTeam": {
-    "sectionName": "Management Team",
-    "score": <1–10>,
-    "commentary": "<Evaluate the team's combined technical depth and commercial \
-execution capability — both are required for successful IP commercialization. Assess: \
-technical credentials and domain expertise of the inventors / CTO; prior IP \
-commercialization track record (successful licensing deals, spin-outs, or technology \
-exits); presence of commercial leadership with customer development and go-to-market \
-experience; IP ownership structure and assignment agreements (ensure all material IP \
-is properly assigned to the entity, not retained by inventors or universities); and \
-key-person risk. Note any gaps between technical and commercial capability that would \
-require post-close remediation.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
+  "key_questions": [
+    {
+      "question": "<specific, targeted question for the deal team>",
+      "validates": "<risk or thesis element this question tests>"
+    }
+  ],
 
-  "investmentThesis": {
-    "sectionName": "Investment Thesis",
-    "score": <1–10>,
-    "commentary": "<Articulate and evaluate the Catalyze commercialization thesis for \
-this opportunity across three sub-dimensions: \
-(1) IP DEFENSIBILITY — Assess the strength of the IP moat: claim breadth and \
-defensibility of granted patents; freedom-to-operate (FTO) relative to competing IP; \
-trade-secret protection; regulatory exclusivities (FDA, FAA, etc.); and the \
-competitive response risk (can a well-funded incumbent design around the patents or \
-develop a superior solution within the hold period?). \
-(2) COMMERCIALIZATION PATHWAY — Identify and rank the most credible path(s) to \
-monetization: pure licensing to industry players; co-development / joint venture with a \
-strategic; direct product development and commercialization; government contract / OTA \
-vehicle; or strategic sale of the IP estate. For each pathway, assess time-to-revenue, \
-capital intensity, probability of success, and implied economics. \
-(3) ORTHOGONAL APPLICATION UPSIDE — Quantify the incremental value creation available \
-by applying this technology to the highest-potential adjacent market identified in the \
-Market Opportunity section. Assess technical feasibility, capital required to unlock the \
-adjacent application, and the expected MOIC uplift relative to the primary-domain-only \
-scenario.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  "riskAssessment": {
-    "sectionName": "Risk Assessment",
-    "score": <1–10>,
-    "commentary": "<Identify and score the top risks specific to IP / technology \
-commercialization investments, including: \
-(1) Technology risk — probability that the technology fails to perform as expected at \
-higher TRL levels or at commercial scale (de-risked by high TRL and field validation); \
-(2) IP risk — risk of patent invalidation, adverse IPR / PGR proceedings, FTO issues \
-with third-party patents, or inadequate trade-secret protection; \
-(3) Commercialization / market adoption risk — risk that target customers do not adopt \
-the technology at projected rates (common with disruptive or 'category-creating' \
-technologies); \
-(4) Regulatory risk — required approvals (FDA, FCC, FAA, EPA, export controls / ITAR) \
-that could delay or block commercialization; \
-(5) Funding / milestone risk — dependency on staged capital tranches tied to technical \
-milestones that may slip; \
-(6) Key-person / inventor risk — concentration of know-how in one or two individuals \
-not contractually bound post-close. \
-Higher scores reflect strong mitigants and manageable risk profiles; lower scores \
-reflect unmitigated binary risks. Flag any deal-breaking risks explicitly.>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  "dealDynamics": {
-    "sectionName": "Deal Dynamics",
-    "score": <1–10>,
-    "commentary": "<Assess the deal structure and return potential: \
-(1) VALUATION — Evaluate the proposed entry valuation relative to comparable IP \
-transactions, technology licensing multiples, and strategic acquirer precedents. For \
-pre-revenue assets, assess the implied value per patent family or per TRL-adjusted \
-technology milestone. \
-(2) DEAL STRUCTURE — Assess the proposed investment instrument (equity, convertible, \
-royalty-backed financing, milestone-contingent tranches) and its alignment with the \
-technology's risk-reward profile. Note any features — milestone payments, sublicensing \
-rights, co-development obligations, change-of-control provisions — that materially \
-affect Catalyze's risk exposure or upside capture. \
-(3) RETURN PROFILE — Model the target MOIC and IRR across the primary commercialization \
-pathway and the orthogonal-application upside scenario. Identify the key assumptions \
-driving returns and their sensitivity (TRL milestone timing, licensing deal size, \
-strategic exit premium). \
-(4) PROCESS — Characterize the deal process (proprietary, lightly competitive, broadly \
-marketed) and any timing pressures. Note whether competing bidders are strategic acquirers \
-(who may pay a premium) or financial sponsors (who are return-constrained).>",
-    "keyFindings": ["<finding 1>", "..."]
-  },
-
-  // --- Aggregate outputs ---
-  "overallScore":      number,   // simple average of all 7 section scores, 1 decimal
-  "recommendation":    "proceed" | "conditional_proceed" | "pass",
-  "executiveSummary":  string    // 3–5 sentence summary: core technology, TRL, primary
-                                 // commercialization pathway, orthogonal application
-                                 // opportunity, and Catalyze's recommended action
+  "data_quality": {
+    "completeness_pct": <0–100>,
+    "missing_critical_fields": ["<field name if absent>"],
+    "caveats": ["<data limitation or OCR/redaction caveat>"]
+  }
 }
-=== End of Interface ===
+=== End of Schema ===
 
 === Deal Materials ===
 ${extractedText}
 === End of Deal Materials ===
 
-Return ONLY the JSON object. No markdown, no prose, no code fences.
+Return ONLY the JSON object. No markdown fences, no prose, no code blocks.
 `;
 }

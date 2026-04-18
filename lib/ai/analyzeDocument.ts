@@ -9,7 +9,7 @@
  * IST analysis follows using the appropriate track prompt.
  */
 
-import type { ISTAnalysis } from "../../types/ist-analysis";
+import type { ISTAnalysis } from "../../types/ist";
 import {
   TRADITIONAL_PE_SYSTEM_PROMPT,
   buildTraditionalPEAnalysisPrompt,
