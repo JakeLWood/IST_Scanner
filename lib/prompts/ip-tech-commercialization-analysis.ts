@@ -104,9 +104,11 @@ explanatory text, markdown fences, or commentary outside the JSON.
  */
 export function buildIPTechAnalysisPrompt(
   extractedText: string,
-  analysisDate: string = new Date().toISOString().slice(0, 10),
+  // _analysisDate is accepted for API compatibility but generated_at uses
+  // the live clock for accuracy.
+  _analysisDate: string = new Date().toISOString().slice(0, 10),
 ): string {
-  const generatedAt = `${analysisDate}T${new Date().toISOString().slice(11)}`;
+  const generatedAt = new Date().toISOString();
   return `\
 Perform a complete Investment Screening Tool (IST) analysis on the following IP / \
 Technology Commercialization deal materials and return a single JSON object that EXACTLY \

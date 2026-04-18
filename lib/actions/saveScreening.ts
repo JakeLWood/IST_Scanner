@@ -57,7 +57,6 @@ export async function saveScreening(
   // 3. Persist the screening record
   // ------------------------------------------------------------------
   const isDisqualified =
-    analysis.recommendation.disqualifying_factors !== null &&
     (analysis.recommendation.disqualifying_factors?.length ?? 0) > 0;
 
   const { data, error } = await supabase

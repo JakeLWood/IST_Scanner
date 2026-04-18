@@ -102,9 +102,11 @@ explanatory text, markdown fences, or commentary outside the JSON.
  */
 export function buildTraditionalPEAnalysisPrompt(
   extractedText: string,
-  analysisDate: string = new Date().toISOString().slice(0, 10),
+  // analysisDate is accepted for API compatibility but generated_at uses
+  // the live clock for accuracy; prefix with _ to suppress unused-var lint.
+  _analysisDate: string = new Date().toISOString().slice(0, 10),
 ): string {
-  const generatedAt = `${analysisDate}T${new Date().toISOString().slice(11)}`;
+  const generatedAt = new Date().toISOString();
   return `\
 Perform a complete Investment Screening Tool (IST) analysis on the following deal \
 materials and return a single JSON object that EXACTLY matches the ISTAnalysis schema \
