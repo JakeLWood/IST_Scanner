@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, lazy, Suspense } from "react";
 import Link from "next/link";
+import { useIsMobile } from "@/hooks/useIsMobile";
 
 const ScoreRadarChart = lazy(() => import("./ScoreRadarChart"));
 import type { RadarDataPoint } from "./ScoreRadarChart";
@@ -682,6 +683,9 @@ export default function ScreeningResultsPage({
   >("idle");
   const [dealFlowId, setDealFlowId] = useState<string | null>(null);
   const [dealFlowError, setDealFlowError] = useState<string | null>(null);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
+
+  const isMobile = useIsMobile();
 
   // Measure and log end-to-end latency from upload start to full results display.
   useEffect(() => {
@@ -781,14 +785,15 @@ export default function ScreeningResultsPage({
       {/* ------------------------------------------------------------------ */}
       <header className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur border-b border-slate-700/60 shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between gap-4 py-3">
+          {/* Primary row: company info + score */}
+          <div className="flex items-center justify-between gap-3 py-3">
             {/* Left: Company info */}
-            <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <div className="min-w-0">
-                <h1 className="text-lg font-bold text-slate-100 truncate leading-tight">
+                <h1 className="text-base sm:text-lg font-bold text-slate-100 truncate leading-tight">
                   {analysis.companyName}
                 </h1>
-                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                   {/* Deal type badge */}
                   <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 whitespace-nowrap">
                     {dealTypeLabel(analysis.dealType)}
@@ -812,7 +817,7 @@ export default function ScreeningResultsPage({
             <div className="flex items-center gap-2 shrink-0">
               <div className="text-center">
                 <div
-                  className={`text-4xl font-bold font-mono leading-none ${compositeColor(compositeScore)}`}
+                  className={`text-3xl sm:text-4xl font-bold font-mono leading-none ${compositeColor(compositeScore)}`}
                 >
                   {compositeScore.toFixed(1)}
                 </div>
@@ -820,10 +825,10 @@ export default function ScreeningResultsPage({
               </div>
             </div>
 
-            {/* Right: Action buttons */}
-            <div className="flex items-center gap-2 shrink-0">
+            {/* Right: Action buttons — desktop only */}
+            <div className="hidden sm:flex items-center gap-2 shrink-0">
               <button
-                className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleExportPDF}
                 disabled={pdfLoading}
                 title="Export PDF"
@@ -871,7 +876,7 @@ export default function ScreeningResultsPage({
                 )}
               </button>
               <button
-                className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors"
                 onClick={() => setShareModalOpen(true)}
                 title="Share via Email"
               >
@@ -894,7 +899,7 @@ export default function ScreeningResultsPage({
                 dealFlowState === "success" && dealFlowId ? (
                   <Link
                     href={`/deals/${dealFlowId}`}
-                    className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors"
                     title="View in DealFlow"
                   >
                     <svg
@@ -914,7 +919,7 @@ export default function ScreeningResultsPage({
                   </Link>
                 ) : (
                   <button
-                    className="hidden sm:flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     onClick={handleAddToDealFlow}
                     disabled={dealFlowState === "loading"}
                     title="Add to DealFlow"
@@ -983,7 +988,100 @@ export default function ScreeningResultsPage({
                 Edit
               </button>
             </div>
+
+            {/* Mobile: actions menu toggle */}
+            <button
+              className="sm:hidden flex items-center justify-center w-8 h-8 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors shrink-0"
+              onClick={() => setMobileActionsOpen((v) => !v)}
+              aria-label="Actions menu"
+              aria-expanded={mobileActionsOpen}
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M12 5v.01M12 12v.01M12 19v.01"
+                />
+              </svg>
+            </button>
           </div>
+
+          {/* Mobile actions drawer */}
+          {mobileActionsOpen && (
+            <div className="sm:hidden flex items-center gap-2 pb-3 overflow-x-auto -mx-4 px-4">
+              <button
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                onClick={handleExportPDF}
+                disabled={pdfLoading}
+              >
+                {pdfLoading ? (
+                  <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
+                {pdfLoading ? "Generating…" : "Export PDF"}
+              </button>
+              <button
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors whitespace-nowrap shrink-0"
+                onClick={() => { setShareModalOpen(true); setMobileActionsOpen(false); }}
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                </svg>
+                Share
+              </button>
+              {recommendation === "PROCEED" && (
+                dealFlowState === "success" && dealFlowId ? (
+                  <Link
+                    href={`/deals/${dealFlowId}`}
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors whitespace-nowrap shrink-0"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                    View in DealFlow
+                  </Link>
+                ) : (
+                  <button
+                    className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors whitespace-nowrap shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={handleAddToDealFlow}
+                    disabled={dealFlowState === "loading"}
+                  >
+                    {dealFlowState === "loading" ? (
+                      <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z" />
+                      </svg>
+                    ) : (
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
+                    )}
+                    {dealFlowState === "loading" ? "Adding…" : "Add to DealFlow"}
+                  </button>
+                )
+              )}
+              <button
+                className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 transition-colors whitespace-nowrap shrink-0"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                </svg>
+                Edit
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1080,7 +1178,7 @@ export default function ScreeningResultsPage({
             {/* Radar Chart — lazy-loaded to keep recharts out of the initial bundle */}
             <div className="rounded-xl border border-slate-700 bg-slate-800/50 p-6">
               <h3 className="text-sm font-semibold text-slate-300 mb-2">
-                Score Radar
+                {isMobile ? "Dimension Scores" : "Score Radar"}
               </h3>
               <Suspense
                 fallback={
@@ -1089,7 +1187,7 @@ export default function ScreeningResultsPage({
                   </div>
                 }
               >
-                <ScoreRadarChart data={radarData} recommendation={recommendation} />
+                <ScoreRadarChart data={radarData} recommendation={recommendation} compact={isMobile} />
               </Suspense>
             </div>
 

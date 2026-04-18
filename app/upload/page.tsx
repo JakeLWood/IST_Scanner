@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Component, useCallback, useRef, useState } from "react";
+import { Component, useCallback, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { extractTextWithMetadata } from "@/lib/extractTextFromFile";
@@ -86,6 +86,12 @@ export default function UploadPage() {
   const [confirmedDealType, setConfirmedDealType] = useState<DealType | null>(
     null,
   );
+
+  // Detect touch device to show "Tap to browse" instead of drag-and-drop copy.
+  const [isTouchDevice, setIsTouchDevice] = useState(false);
+  useEffect(() => {
+    setIsTouchDevice("ontouchstart" in window || navigator.maxTouchPoints > 0);
+  }, []);
 
   // Persist extracted text between the classify and analyse phases
   const extractedTextRef = useRef<string>("");
@@ -283,7 +289,7 @@ export default function UploadPage() {
 
   return (
     <ErrorBoundary>
-      <div className="min-h-screen bg-slate-950 px-4 py-10">
+      <div className="min-h-screen bg-slate-950 px-4 py-8 sm:py-10">
         <div className="mx-auto max-w-3xl">
           {/* Header */}
           <div className="mb-8">
@@ -305,7 +311,7 @@ export default function UploadPage() {
               </svg>
               Back
             </Link>
-            <h1 className="text-3xl font-bold text-slate-50">Screen a Deal</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-slate-50">Screen a Deal</h1>
             <p className="mt-1 text-slate-400">
               Upload a document or paste a deal description to begin IST
               analysis.
@@ -413,7 +419,9 @@ export default function UploadPage() {
                     <p className="mt-3 text-sm font-medium text-slate-300">
                       {dragActive
                         ? "Drop your file here"
-                        : "Drag & drop a file, or click to browse"}
+                        : isTouchDevice
+                          ? "Tap to browse files"
+                          : "Drag & drop a file, or click to browse"}
                     </p>
                     <p className="mt-1 text-xs text-slate-500">
                       PDF, DOCX, PPTX, PNG, JPG · Max {MAX_FILE_SIZE_MB} MB
