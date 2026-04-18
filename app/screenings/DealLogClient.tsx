@@ -15,6 +15,12 @@ import { fetchScreeningsForExport } from "@/lib/actions/fetchScreeningsForExport
 
 export type ScreeningRecommendation = "PROCEED" | "FURTHER_REVIEW" | "PASS";
 export type DealType = "traditional_pe" | "ip_technology";
+export type ActualOutcome =
+  | "pursued"
+  | "passed"
+  | "invested"
+  | "currently_in_diligence"
+  | "exited";
 
 export interface DealLogRow {
   id: string;
@@ -26,6 +32,7 @@ export interface DealLogRow {
   sector: string | null;
   dealSource: string | null;
   screenedBy: string | null;
+  actualOutcome: ActualOutcome | null;
 }
 
 interface DealLogClientProps {
@@ -69,6 +76,36 @@ function verdictBadge(rec: ScreeningRecommendation): {
 function dealTypeLabel(dt: DealType | null): string {
   if (!dt) return "—";
   return dt === "traditional_pe" ? "Traditional PE" : "IP / Technology";
+}
+
+const OUTCOME_LABELS: Record<ActualOutcome, string> = {
+  pursued: "Pursued",
+  passed: "Passed",
+  invested: "Invested",
+  currently_in_diligence: "In Diligence",
+  exited: "Exited",
+};
+
+function outcomeBadge(outcome: ActualOutcome): { label: string; classes: string } {
+  switch (outcome) {
+    case "invested":
+    case "exited":
+      return {
+        label: OUTCOME_LABELS[outcome],
+        classes: "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40",
+      };
+    case "pursued":
+    case "currently_in_diligence":
+      return {
+        label: OUTCOME_LABELS[outcome],
+        classes: "bg-indigo-500/20 text-indigo-300 border border-indigo-500/40",
+      };
+    case "passed":
+      return {
+        label: OUTCOME_LABELS[outcome],
+        classes: "bg-slate-600/40 text-slate-400 border border-slate-500/40",
+      };
+  }
 }
 
 function formatDate(iso: string): string {
@@ -689,6 +726,7 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
                     { col: "sector", label: "Sector" },
                     { col: "dealSource", label: "Deal Source" },
                     { col: "screenedBy", label: "Screened By" },
+                    { col: "actualOutcome", label: "Actual Outcome" },
                   ] as { col: SortKey; label: string }[]
                 ).map(({ col, label }) => (
                   <th
@@ -711,7 +749,7 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
               {displayed.length === 0 ? (
                 <tr>
                   <td
-                    colSpan={9}
+                    colSpan={10}
                     className="px-4 py-12 text-center text-slate-500"
                   >
                     No screenings match your filters.
@@ -821,6 +859,26 @@ export default function DealLogClient({ rows }: DealLogClientProps) {
                       {/* Screened By */}
                       <td className="px-4 py-3 text-slate-400">
                         {row.screenedBy ?? (
+                          <span className="text-slate-600">—</span>
+                        )}
+                      </td>
+
+                      {/* Actual Outcome */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {row.actualOutcome ? (
+                          (() => {
+                            const { label, classes } = outcomeBadge(
+                              row.actualOutcome
+                            );
+                            return (
+                              <span
+                                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${classes}`}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })()
+                        ) : (
                           <span className="text-slate-600">—</span>
                         )}
                       </td>

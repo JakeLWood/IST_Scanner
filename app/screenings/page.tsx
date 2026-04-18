@@ -33,6 +33,7 @@ interface ScreeningListRow {
   // JSONB fields for sector extraction
   snapshot_json: Record<string, unknown> | null;
   ai_response_json: Record<string, unknown> | null;
+  actual_outcome: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,7 @@ async function loadScreenings(): Promise<DealLogRow[]> {
          created_at,
          snapshot_json,
          ai_response_json,
+         actual_outcome,
          users ( name, email )`
       )
       .order("created_at", { ascending: false })
@@ -128,6 +130,7 @@ async function loadScreenings(): Promise<DealLogRow[]> {
       sector: extractSector(row),
       dealSource: row.deal_source,
       screenedBy: row.users?.name ?? row.users?.email ?? null,
+      actualOutcome: row.actual_outcome as DealLogRow["actualOutcome"],
     }));
   } catch (err) {
     console.error("Error loading screenings:", err);
@@ -150,6 +153,7 @@ const DEMO_ROWS: DealLogRow[] = [
     sector: "Industrials",
     dealSource: "Lincoln International",
     screenedBy: "Jake Wood",
+    actualOutcome: null,
   },
   {
     id: "demo-ip",
@@ -161,6 +165,7 @@ const DEMO_ROWS: DealLogRow[] = [
     sector: "Photonics / Defense Tech",
     dealSource: "Proprietary",
     screenedBy: "Jake Wood",
+    actualOutcome: null,
   },
 ];
 
